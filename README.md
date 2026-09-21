@@ -33,8 +33,8 @@ Carga de referencia ───┘
  
 - [x] ES1 — Ingeniería conceptual: problemática, alternativas de diseño, selección de alternativa
 - [x] ES2 — Ingeniería básica y de detalle: alcance, proveedores, métodos constructivos, ensayos
-- [ ] ES3 — Implementación
-- [ ] ES4 — Validación y cierre
+- [ ] ES3 — Implementación (EN PROCESO)
+- [ ] ES4 — Validación y cierre (EN PROCESO)
 ## Estructura del repositorio
  
 ```
