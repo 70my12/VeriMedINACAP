@@ -55,7 +55,7 @@ VeriMed-BT/
  
 - Felipe Martínez
 - Tomás Quezada
-Docente guía: Carlos Castillo (HIPI02)
+- Docente guía: Carlos Castillo (HIPI02)
  
 ## Licencia
  
