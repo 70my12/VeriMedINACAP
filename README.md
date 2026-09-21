@@ -48,7 +48,7 @@ VeriMed-BT/
  
 ## Documentación
  
-- [PreeInforme de Proyecto de Título(FORMATIVO)](docs/Informe_Proyecto_de_Titulo.pdf)
+- [PreeInforme de Proyecto de Título(FORMATIVO)](https://github.com/70my12/VeriMedINACAP/blob/main/Informe_Proyecto_de_Titulo%20(1).docx)
 - [Presentación técnica](docs/VeriMed_BT_Presentacion.pdf)
 - [Presentación comercial](docs/VeriMed_BT_Comercializacion.pdf)
 ## Equipo
