@@ -48,7 +48,7 @@ VeriMed-BT/
  
 ## Documentación
  
-- [Informe de Proyecto de Título](docs/Informe_Proyecto_de_Titulo.pdf)
+- [PreeInforme de Proyecto de Título(FORMATIVO)](docs/Informe_Proyecto_de_Titulo.pdf)
 - [Presentación técnica](docs/VeriMed_BT_Presentacion.pdf)
 - [Presentación comercial](docs/VeriMed_BT_Comercializacion.pdf)
 ## Equipo
