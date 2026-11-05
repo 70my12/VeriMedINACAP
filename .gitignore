@@ -67,3 +67,50 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+
+# =========================================================
+# VeriMed BT (Flutter, Arduino y secretos)
+# =========================================================
+# ---- Secretos / configuración local (NO subir) ----
+app/lib/firebase_options.dart
+app/android/app/google-services.json
+app/ios/Runner/GoogleService-Info.plist
+*.keystore
+*.jks
+key.properties
+local.properties
+
+# ---- Flutter / Dart ----
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/.pub-cache/
+app/.pub/
+app/build/
+app/**/build/
+app/android/.gradle/
+app/android/captures/
+app/android/gradlew
+app/android/gradlew.bat
+app/android/gradle/wrapper/gradle-wrapper.jar
+app/android/app/debug/
+app/android/app/profile/
+app/android/app/release/
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+**/GeneratedPluginRegistrant.*
+
+# ---- IDEs / sistema ----
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.log
+
+# ---- Arduino ----
+firmware/**/build/
