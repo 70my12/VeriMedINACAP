@@ -36,7 +36,9 @@ Red 220 V ── MEDIDOR BAJO PRUEBA ── carga
 
 ## Stack técnico
 
-- **Microcontrolador:** ESP32 — placa ESP32-2432S028 ("Cheap Yellow Display" 2,8", táctil)
+- **Microcontrolador:** ESP32 — dos versiones de equipo:
+  - ESP32-2432S028 ("Cheap Yellow Display" 2,8", táctil)
+  - VIEWE UEDX80480070E-WB-A (ESP32-S3, pantalla IPS 7" 800×480, táctil) — ver [docs/PANTALLA_7.md](docs/PANTALLA_7.md)
 - **Medición de referencia:** PZEM-004T v3.0 (V, I, P, FP, f) en el prototipo actual.
   El diseño original considera el **AD71056**; ver la nota en [docs/HARDWARE.md](docs/HARDWARE.md#nota-sobre-el-ad71056).
 - **Conteo de pulsos:** sensor óptico (fotodiodo/fototransistor + LM393) sobre el LED del medidor
@@ -45,7 +47,7 @@ Red 220 V ── MEDIDOR BAJO PRUEBA ── carga
 
 ## Funciones implementadas
 
-**Equipo** (`firmware/verimed_v2`)
+**Equipo** (`firmware/verimed_v2` para 2,8" y `firmware/verimed7` para 7")
 - Mediciones en vivo, ajustes del ensayo (Kc, N pulsos, clase), progreso, resultado e historial guardado en flash.
 - Veredicto APROBADO / RECHAZADO en pantalla, LED RGB y pitidos; alarmas de sobretensión, tensión baja y sobrecorriente.
 - Bluetooth visible como "VeriMed BT", con encendido/apagado desde la pantalla.
@@ -65,6 +67,7 @@ Red 220 V ── MEDIDOR BAJO PRUEBA ── carga
 - [ ] ES3 — Implementación (EN PROCESO)
   - [x] Firmware del equipo, Bluetooth y app conectada (modo simulación)
   - [x] Escáner de serie, foto con GPS e informe PDF con trazabilidad
+  - [x] Versión con pantalla de 7" (800×480) con gráfico de potencia en vivo
   - [ ] Integración del medidor de referencia y del sensor óptico
 - [ ] ES4 — Validación y cierre (EN PROCESO)
   - [ ] Ensayos de repetibilidad y comparación contra medidor patrón
@@ -74,7 +77,7 @@ Red 220 V ── MEDIDOR BAJO PRUEBA ── carga
 ```
 VeriMedINACAP/
 ├── docs/           Informe de ingeniería, guías de hardware, protocolo BLE y configuración
-├── firmware/       Código del ESP32 (firmware principal, diagnóstico, calibración táctil, User_Setup.h)
+├── firmware/       Código del ESP32: verimed_v2 (2,8"), verimed7 (7"), pruebas, diagnóstico y calibración
 ├── app/            Código de la app móvil (Flutter)
 ├── hardware/       Esquemáticos y diagramas del circuito (por agregar)
 └── media/          Fotos y video del prototipo (por agregar)
@@ -87,6 +90,7 @@ VeriMedINACAP/
   elegir **Partition Scheme → Huge APP** y subir `firmware/verimed_v2`.
 - **App:** copiar en `app/` el resto del proyecto Flutter y los archivos de Firebase (no se suben al repositorio),
   luego `flutter pub get` y `flutter run`. Detalles en [docs/CONFIGURACION_APP.md](docs/CONFIGURACION_APP.md).
+- **Pantalla de 7":** placa *ESP32S3 Dev Module* con OPI PSRAM; pasos en [docs/PANTALLA_7.md](docs/PANTALLA_7.md).
 - **Hardware:** qué comprar y cómo conectarlo en [docs/HARDWARE.md](docs/HARDWARE.md).
 
 > El montaje de ensayo trabaja con **220 V**: usar fusible, caja cerrada y supervisión del laboratorio.
@@ -98,6 +102,7 @@ VeriMedINACAP/
 - [Presentación técnica](docs/VeriMed_BT_Presentacion.pdf)
 - [Presentación comercial](docs/VeriMed_BT_Comercializacion.pdf)
 - [Hardware: compras y conexiones](docs/HARDWARE.md)
+- [Pantalla de 7" (VIEWE)](docs/PANTALLA_7.md)
 - [Protocolo Bluetooth LE](docs/PROTOCOLO_BLE.md)
 - [Configuración de la app](docs/CONFIGURACION_APP.md)
 
