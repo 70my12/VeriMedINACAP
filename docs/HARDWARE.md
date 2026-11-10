@@ -9,6 +9,7 @@ Con solo el ESP32-2432S028 y la app, todo funciona en **modo simulación**. Para
 | **PZEM-004T v3.0 (100 A)**, ideal con transformador de núcleo partido | Medidor de referencia: V, I, P, FP y frecuencia por UART (≈ ±0,5 %) | `USAR_PZEM 1` + librería `PZEM-004T-v30` (Jakub Mandula) |
 | **Sensor óptico** con fotodiodo/fototransistor y comparador **LM393**, salida digital `DO` | Contar los pulsos del LED "imp/kWh" del medidor. **Evitar el de LDR** (lento, pierde pulsos) | `USAR_SENSOR_PULSOS 1` |
 | 2 cables **Molex PicoBlade 1,25 mm, 4 pines** + cables dupont | Conectores CN1 y P3 del CYD | — |
+| Adaptador **microSD a pines** (*microSD sniffer / breakout*) | Solo para la pantalla de 7": da acceso a IO11, IO12 e IO13 | ver [PANTALLA_7.md](PANTALLA_7.md) |
 | Cinta negra / tubito opaco / soporte con ventosa | Aislar el sensor de la luz ambiente | — |
 
 ## Banco de ensayo (220 V) — con supervisión del laboratorio
@@ -36,6 +37,8 @@ Con solo el ESP32-2432S028 y la app, todo funciona en **modo simulación**. Para
 | **P4** | — | Parlante (opcional) |
 
 LED RGB de la placa: azul = esperando pulso · verde = aprobado · rojo = rechazado o alarma.
+
+Para la pantalla de 7" (VIEWE) las conexiones son otras: ver [PANTALLA_7.md](PANTALLA_7.md#pines-para-el-pzem-y-el-sensor-óptico).
 
 ## Montaje del ensayo
 
