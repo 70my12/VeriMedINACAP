@@ -25,7 +25,7 @@
 #define PULSOS_TACTILES      (!USAR_SENSOR_PULSOS && (USAR_PLACA || USAR_PZEM))
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.4.0"
+#define VERSION_FW     "2.4.1"
 #define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
@@ -446,6 +446,17 @@ void dibujarEstado() {
   } else if (estado == ESPERA && cargaEstabilizando()) {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     msg = "Conectando la carga de ensayo y estabilizando la medición...";
+#if USAR_PLACA
+    unsigned long dt = millis() - tCargaOn;
+    if (dt < ESTABILIZAR_MS)
+      msg = "Conectando la carga y estabilizando · " + String((ESTABILIZAR_MS - dt + 999) / 1000) + " s";
+    else if (!pzemOk) { bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
+      msg = "Sin datos de la placa de medición: revisa el cable TX/RX/GND"; }
+    else if (!releCarga) { bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
+      msg = "La placa no confirma la carga encendida (relé)"; }
+    else { bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
+      msg = "Carga conectada sin potencia (P = " + String(P, 0) + " W): revisa resistencia y calibración"; }
+#endif
   } else if (estado == ESPERA) {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     float tp = segPorPulso();
@@ -1294,7 +1305,7 @@ void loop() {
       bool estab = estado == ESPERA && cargaEstabilizando();
       bool cambioEstab = estab != estabMostrado;
       estabMostrado = estab;
-      if (estado == MIDIENDO || cambioAlarma || cambioAviso || cambioDatos || cambioEstab) refrescarEstado();
+      if (estado == MIDIENDO || cambioAlarma || cambioAviso || cambioDatos || cambioEstab || estab) refrescarEstado();
       if (cambioEstab && PULSOS_TACTILES) refrescarBotones();   // el boton PULSO se habilita al estabilizar
       if (estado == MIDIENDO || cambioDatos) pintar(R_DATOS_ENSAYO, dibujarDatosEnsayo);
     } else {
