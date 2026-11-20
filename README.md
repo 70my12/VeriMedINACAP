@@ -39,9 +39,9 @@ Red 220 V ── MEDIDOR BAJO PRUEBA ── carga
 - **Microcontrolador:** ESP32 — dos versiones de equipo:
   - ESP32-2432S028 ("Cheap Yellow Display" 2,8", táctil)
   - VIEWE UEDX80480070E-WB-A (ESP32-S3, pantalla IPS 7" 800×480, táctil) — ver [docs/PANTALLA_7.md](docs/PANTALLA_7.md)
-- **Medición de referencia:** PZEM-004T v3.0 (V, I, P, FP, f) en el prototipo actual.
-  El diseño original considera el **AD71056**; ver la nota en [docs/HARDWARE.md](docs/HARDWARE.md#nota-sobre-el-ad71056).
-- **Conteo de pulsos:** sensor óptico (fotodiodo/fototransistor + LM393) sobre el LED del medidor
+- **Medición de referencia:** placa propia con ESP32 DevKitC + 2 × AD71056 (V, I y P = V·I), unida a la pantalla por UART —
+  ver [docs/PLACA_MEDICION.md](docs/PLACA_MEDICION.md). (Antes: PZEM-004T v3.0.)
+- **Conteo de pulsos:** el técnico cuenta los pulsos y el tiempo que indica el equipo (el sensor óptico se descartó)
 - **Comunicación:** Bluetooth Low Energy (BLE) — [protocolo](docs/PROTOCOLO_BLE.md)
 - **App:** Flutter (Android / iOS) con Firebase Authentication
 
@@ -68,7 +68,10 @@ Red 220 V ── MEDIDOR BAJO PRUEBA ── carga
   - [x] Firmware del equipo, Bluetooth y app conectada (modo simulación)
   - [x] Escáner de serie, foto con GPS e informe PDF con trazabilidad
   - [x] Versión con pantalla de 7" (800×480) con gráfico de potencia en vivo
-  - [ ] Integración del medidor de referencia y del sensor óptico
+  - [x] Placa de medición propia (2 × AD71056) integrada con la pantalla de 7" y calibrada
+  - [x] Pulsos automáticos según Kc y potencia; carga conectada solo durante el ensayo
+  - [x] Rediseño de la app (diseño B) y diseño 3D de la caja
+  - Estado detallado: [docs/ESTADO_NOV2026.md](docs/ESTADO_NOV2026.md)
 - [ ] ES4 — Validación y cierre (EN PROCESO)
   - [ ] Ensayos de repetibilidad y comparación contra medidor patrón
 
@@ -101,6 +104,9 @@ VeriMedINACAP/
 - [Evaluación n°1 Proyecto de Título (SUMATIVA)]
 - [Presentación técnica](docs/VeriMed_BT_Presentacion.pdf)
 - [Presentación comercial](docs/VeriMed_BT_Comercializacion.pdf)
+- [Estado del proyecto — noviembre 2026](docs/ESTADO_NOV2026.md)
+- [Placa de medición (2 × AD71056)](docs/PLACA_MEDICION.md)
+- [Caja en 3D](docs/diseno/caja/caja_verimed.html)
 - [Hardware: compras y conexiones](docs/HARDWARE.md)
 - [Pantalla de 7" (VIEWE)](docs/PANTALLA_7.md)
 - [Protocolo Bluetooth LE](docs/PROTOCOLO_BLE.md)
@@ -108,7 +114,8 @@ VeriMedINACAP/
 
 ## Limitaciones
 
-- El PZEM-004T tiene una exactitud aproximada de ±0,5 %: sirve para verificar medidores clase 2 y, con margen, clase 1, pero no reemplaza un patrón certificado.
+- La placa calcula P = V · I: el resultado solo es válido con carga resistiva (FP ≈ 1) y el factor de potencia no se mide.
+- VeriMed es un verificador referencial de terreno: no reemplaza la verificación de un laboratorio autorizado por la SEC.
 - Los resultados en modo simulación son ilustrativos y así se indica en la app y en el informe.
 
 ## Equipo

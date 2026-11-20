@@ -25,5 +25,7 @@ struct Resultado {
 // Lo que se guarda en la memoria flash, en UN solo bloque cada uno
 // (cada escritura en flash pausa un instante la imagen de la pantalla).
 #define MAX_HIST_GUARDADO 10
-struct ConfigGuardada { uint16_t kc; uint16_t np; uint8_t clase; uint8_t ble; };
+// to = tiempo objetivo del ensayo en s (0 = pulsos manuales)
+struct ConfigGuardada { uint16_t kc; uint16_t np; uint8_t clase; uint8_t ble; uint16_t to; };
+struct ConfigGuardadaV21 { uint16_t kc; uint16_t np; uint8_t clase; uint8_t ble; };   // formato 2.1.0
 struct HistorialGuardado { uint32_t proximoId; uint8_t n; Resultado r[MAX_HIST_GUARDADO]; };

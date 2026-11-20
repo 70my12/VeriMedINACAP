@@ -15,6 +15,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // ======================================================================
 //  Foto + ubicación
@@ -66,20 +67,34 @@ class CapturaTerreno {
 }
 
 /// Pide el permiso de ubicación. Devuelve null si todo está bien, o el motivo.
+/// Primero pide el PERMISO (aunque el GPS esté apagado): así Android muestra el
+/// diálogo y la app aparece con el permiso "Ubicación" en Ajustes. Después revisa
+/// si el GPS del teléfono está encendido.
 Future<String?> asegurarPermisoUbicacion() async {
   try {
+    var estado = await Permission.locationWhenInUse.status;
+    if (!estado.isGranted && !estado.isLimited && !estado.isPermanentlyDenied) {
+      estado = await Permission.locationWhenInUse.request();
+    }
+    if (estado.isPermanentlyDenied) return 'Permiso de ubicación bloqueado: actívalo en Ajustes de la app.';
+    if (!estado.isGranted && !estado.isLimited) return 'Permiso de ubicación rechazado ($estado).';
     if (!await Geolocator.isLocationServiceEnabled()) {
       return 'La ubicación (GPS) del teléfono está apagada.';
     }
-    var permiso = await Geolocator.checkPermission();
-    if (permiso == LocationPermission.denied) permiso = await Geolocator.requestPermission();
-    if (permiso == LocationPermission.denied) return 'Permiso de ubicación rechazado.';
-    if (permiso == LocationPermission.deniedForever) {
-      return 'Permiso de ubicación bloqueado: actívalo en Ajustes de la app.';
-    }
     return null;
   } catch (e) {
-    return 'No se pudo revisar el permiso de ubicación.';
+    return 'No se pudo pedir el permiso de ubicación: $e';
+  }
+}
+
+/// true si falta el permiso o el GPS está apagado (para mostrar el aviso en la app).
+Future<bool> ubicacionPendiente() async {
+  try {
+    final p = await Permission.locationWhenInUse.status;
+    if (!p.isGranted && !p.isLimited) return true;
+    return !await Geolocator.isLocationServiceEnabled();
+  } catch (_) {
+    return true;
   }
 }
 
@@ -171,12 +186,21 @@ Future<CapturaTerreno?> tomarFotoConUbicacion() async {
   );
 }
 
-/// Abre los ajustes de ubicación o de la app (si el permiso quedó bloqueado).
+/// Abre los ajustes de la app (permiso bloqueado) o los de ubicación (GPS apagado).
+/// Si solo falta el permiso, lo vuelve a pedir.
 Future<void> abrirAjustesUbicacion({required bool permisoBloqueado}) async {
-  if (permisoBloqueado) {
+  try {
+    final p = await Permission.locationWhenInUse.status;
+    if (permisoBloqueado || p.isPermanentlyDenied) {
+      await openAppSettings();
+    } else if (!p.isGranted && !p.isLimited) {
+      final nuevo = await Permission.locationWhenInUse.request();
+      if (nuevo.isPermanentlyDenied || nuevo.isDenied) await openAppSettings();
+    } else if (!await Geolocator.isLocationServiceEnabled()) {
+      await Geolocator.openLocationSettings();
+    }
+  } catch (_) {
     await Geolocator.openAppSettings();
-  } else {
-    await Geolocator.openLocationSettings();
   }
 }
 

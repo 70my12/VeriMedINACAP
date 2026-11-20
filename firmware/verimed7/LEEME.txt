@@ -1,0 +1,54 @@
+VERIMED BT 7" (VIEWE UEDX80480070E-WB-A V1.1) - COMO SUBIRLO
+============================================================
+
+1) Librerias (Gestor de librerias):  LovyanGFX  (lovyan03)
+   Con hardware real ademas:          PZEM-004T-v30  (Jakub Mandula)
+
+2) Herramientas (OJO: al cambiar de placa se reinician estas opciones):
+     Placa ............ ESP32S3 Dev Module
+     PSRAM ............ OPI PSRAM
+     Flash Mode ....... QIO 80MHz
+     Flash Size ....... 16MB (128Mb)
+     Partition Scheme . 16M Flash (3MB APP/9.9MB FATFS)
+     USB CDC On Boot .. Disabled   (programando por el puerto UART)
+
+3) Abre verimed7.ino (la carpeta trae 5 archivos: verimed7.ino, LGFX_VeriMed7.h,
+   fuentes7.h, iconos7.h, tipos7.h) y sube. La primera compilacion tarda
+   (fuentes7.h es grande: son las fuentes HD).
+
+QUE TRAE
+- Pantalla principal: V, I, P y FP grandes, grafico de potencia de los
+  ultimos 60 s, panel del ensayo (pulsos, barra de progreso, Kc, clase,
+  energia) y botones INICIAR/DETENER, AJUSTES e HISTORIAL.
+- Ajustes con + / - (mantener presionado para avanzar rapido).
+- Resultado a pantalla completa: APROBADO/RECHAZADO y error en grande.
+- Historial de 10 ensayos que no se borra al apagar.
+- Bluetooth "VeriMed BT" con el MISMO protocolo que el CYD: la app funciona igual.
+  Toca la etiqueta de Bluetooth (arriba a la derecha) para apagarlo/encenderlo.
+
+FLUIDEZ Y ESTABILIDAD
+- La pantalla RGB lee su imagen todo el tiempo desde la PSRAM. Si el programa
+  usa mucho la PSRAM, la imagen se corre hacia un lado o parpadea.
+- Por eso se dibuja en una franja de 800x40 en la RAM interna y cada zona que
+  cambia se escribe una sola vez en la pantalla (sin dibujado a medias).
+- Cada 0,5 s solo se repintan los numeros, la curva y los datos del ensayo.
+- Reloj de pixeles en 14 MHz. Si aun notas que la imagen se mueve, en
+  LGFX_VeriMed7.h baja VERIMED7_PCLK_HZ a 12000000.
+- Al guardar en la memoria (fin de ensayo, ajustes, Bluetooth on/off) la imagen
+  puede parpadear un instante: es normal en esta placa (la escritura en flash
+  pausa por milisegundos el acceso a la PSRAM donde esta la imagen).
+
+MONITOR SERIE (115200)
+- Al encender muestra el "motivo del ultimo reinicio". Si la placa se reinicia
+  sola, copia lo que aparece ahi para diagnosticar.
+- Los botones se oscurecen al tocarlos y actuan al soltar el dedo.
+
+PINES PARA EL HARDWARE (cuando llegue)
+Esta placa usa casi todos sus pines en la pantalla. Quedan libres los de la
+ranura microSD (sin tarjeta insertada), accesibles con un adaptador
+"microSD a pines" (microSD sniffer / breakout):
+   IO12 -> DO del sensor optico           (PIN_PULSOS)
+   IO13 -> RX del ESP32 <- TX del PZEM    (PZEM_RX)
+   IO11 -> TX del ESP32 -> RX del PZEM    (PZEM_TX)
+   GND y 3.3V del mismo adaptador
+Se cambian en la seccion CONFIGURACION de verimed7.ino.

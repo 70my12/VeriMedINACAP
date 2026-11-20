@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ensayo en curso · modo oscuro</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2fd39a}a:hover{color:#6fe5bb}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0a1424; color: #e8eef8; font-family: 'Inter Tight', system-ui, sans-serif; display: flex; flex-direction: column; gap: 16px; padding: 28px 20px 24px; overflow: hidden">
+
+  <!-- Encabezado -->
+  <div style="display: flex; align-items: center; gap: 12px">
+    <a href="Main.dc.html" aria-label="Volver al inicio" style="width: 44px; height: 44px; border-radius: 14px; border: 1px solid #1f3350; background: #11203a; color: #c5d2e6; display: flex; align-items: center; justify-content: center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </a>
+    <div style="display: flex; flex-direction: column; flex: 1">
+      <span style="font-size: 19px; font-weight: 700">Ensayo</span>
+      <span style="font-size: 13px; color: #8fa1bd">Medidor 2280431 · Kc 1600 · clase 1</span>
+    </div>
+    <span style="font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: {{chipBg}}; color: {{chipFg}}">{{chipTxt}}</span>
+  </div>
+
+  <!-- Anillo de progreso -->
+  <div style="position: relative; width: 260px; height: 260px; align-self: center">
+    <svg width="260" height="260" viewBox="0 0 260 260" role="img" aria-label="Avance del ensayo">
+      <circle cx="130" cy="130" r="110" fill="none" stroke="#16263f" stroke-width="16"/>
+      <circle cx="130" cy="130" r="110" fill="none" stroke="#2fd39a" stroke-width="16" stroke-linecap="round" stroke-dasharray="691.15" stroke-dashoffset="{{ringOffset}}" transform="rotate(-90 130 130)"/>
+    </svg>
+    <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px">
+      <span style="font-size: 13px; color: #8fa1bd">Pulsos</span>
+      <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 72px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">{{pulsos}}<span style="font-size: 34px; color: #5f7391"> / 6</span></span>
+      <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 20px; font-weight: 600; color: #c5d2e6; font-variant-numeric: tabular-nums">{{tiempo}} s <span style="color: #5f7391">de ~13,5 s</span></span>
+    </div>
+  </div>
+
+  <!-- Pulsos del LED -->
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 18px; background: #11203a; border: 1px solid #1f3350">
+    <div style="display: flex; justify-content: space-between; align-items: center">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600">
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: {{ledBg}}; box-shadow: {{ledGlow}}"></span>
+        LED del medidor
+      </span>
+      <span style="font-size: 13px; color: #8fa1bd">1 pulso cada 2,25 s</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{dots}}" as="d" hint-placeholder-count="6">
+        <div style="height: 10px; border-radius: 6px; background: {{d.bg}}"></div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- Potencia en vivo + energías -->
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 18px; background: #11203a; border: 1px solid #1f3350">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-size: 14px; font-weight: 600">Potencia de referencia</span>
+      <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 22px; font-weight: 700; color: #2fd39a">{{potencia}} W</span>
+    </div>
+    <svg width="100%" height="54" viewBox="0 0 320 54" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 27 H320" stroke="#1f3350" stroke-dasharray="4 4"/>
+      <path d="{{chartPath}}" fill="none" stroke="#2fd39a" stroke-width="2.5" stroke-linejoin="round"/>
+    </svg>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #8fa1bd">Energía referencia</span><span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums">{{eref}} Wh</span></div>
+      <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #8fa1bd">Energía medidor</span><span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums">{{emed}} Wh</span></div>
+    </div>
+  </div>
+
+  <div style="flex: 1"></div>
+
+  <!-- Acciones -->
+  <sc-if value="{{inicial}}" hint-placeholder-val="{{ true }}">
+    <button onClick="{{iniciar}}" style="height: 58px; border: 0; border-radius: 18px; background: #2fd39a; color: #062018; font: 750 17px 'Inter Tight', sans-serif; cursor: pointer">Iniciar ensayo</button>
+  </sc-if>
+  <sc-if value="{{corriendo}}" hint-placeholder-val="{{ false }}">
+    <button onClick="{{detener}}" style="height: 58px; border: 1.5px solid #ff8a8a; border-radius: 18px; background: transparent; color: #ff8a8a; font: 700 17px 'Inter Tight', sans-serif; cursor: pointer">Detener ensayo</button>
+  </sc-if>
+  <sc-if value="{{terminado}}" hint-placeholder-val="{{ false }}">
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <button onClick="{{reiniciar}}" style="height: 58px; border: 1.5px solid #1f3350; border-radius: 18px; background: #11203a; color: #e8eef8; font: 650 16px 'Inter Tight', sans-serif; cursor: pointer">Repetir</button>
+      <a href="A-Resultado.dc.html" style="height: 58px; border-radius: 18px; background: #2fd39a; color: #062018; font: 750 16px 'Inter Tight', sans-serif; display: flex; align-items: center; justify-content: center; text-decoration: none">Ver resultado</a>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { t: 0, corriendo: false }; }
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (!this.state.corriendo) return;
+      const t = Math.min(this.state.t + 0.1, 13.5);
+      this.setState({ t, corriendo: t < 13.5 });
+    }, 100);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() {
+    const N = 6, TP = 2.25, C = 691.15;
+    const t = this.state.t, corriendo = this.state.corriendo;
+    const pulsos = Math.min(N, Math.floor(t / TP + 1e-6));
+    const terminado = !corriendo && t >= N * TP - 1e-6;
+    const inicial = !corriendo && !terminado;
+    const prog = t / (N * TP);
+    const fmt = (v, d) => v.toFixed(d).replace('.', ',');
+    const flash = corriendo && (t % TP) < 0.35 && t > 0.2;
+    const dots = [];
+    for (let i = 0; i < N; i++) dots.push({ bg: i < pulsos ? '#2fd39a' : '#1f3350' });
+    // curva de potencia (variación pequeña alrededor de 1000 W)
+    let path = 'M0 27', puntos = Math.max(1, Math.round(prog * 64));
+    for (let i = 1; i <= puntos; i++) {
+      const y = 27 + Math.sin(i * 0.9) * 4 + Math.sin(i * 0.37) * 6;
+      path += ' L' + (i * 5) + ' ' + y.toFixed(1);
+    }
+    const p = t > 0 ? 1000 + Math.round(Math.sin(t * 2.1) * 6) : 1000;
+    return {
+      pulsos, tiempo: fmt(t, 1), ringOffset: (C * (1 - prog)).toFixed(1),
+      potencia: p.toLocaleString('es-CL'),
+      eref: fmt(t * 1000 / 3600 * (terminado ? 1.0035 : 1), 3),
+      emed: fmt(pulsos * 0.625, 3),
+      dots, chartPath: path,
+      ledBg: flash ? '#f5b321' : '#2a3d5c',
+      ledGlow: flash ? '0 0 0 6px rgba(245,179,33,.25), 0 0 18px #f5b321' : 'none',
+      chipTxt: terminado ? 'Terminado' : corriendo ? 'Midiendo' : 'Listo',
+      chipBg: terminado ? 'rgba(47,211,154,.16)' : corriendo ? 'rgba(245,179,33,.16)' : '#16263f',
+      chipFg: terminado ? '#2fd39a' : corriendo ? '#f5b321' : '#c5d2e6',
+      inicial, corriendo, terminado,
+      iniciar: () => this.setState({ t: 0, corriendo: true }),
+      detener: () => this.setState({ corriendo: false, t: 0 }),
+      reiniciar: () => this.setState({ t: 0, corriendo: true }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+VERIMED BT - ESCANER DE SERIE Y FOTO CON UBICACION
+==================================================
+
+1) Copia a tu proyecto:
+   - lib/main.dart              (reemplaza)
+   - lib/verimed_ble.dart       (reemplaza)
+   - lib/verimed_captura.dart   (NUEVO)
+   - pubspec.yaml               (reemplaza: agrega mobile_scanner, image_picker,
+                                 geolocator y geocoding)
+   - android/app/src/main/AndroidManifest.xml (reemplaza: agrega Camara y Ubicacion)
+     -> Mejor abre el tuyo en VS Code, borra todo y pega el contenido nuevo.
+
+2) En la terminal:
+     flutter clean
+     flutter pub get
+     flutter run -d ID_DEL_TELEFONO
+
+3) Si aparece un error de "minSdk" al compilar:
+   abre android/app/build.gradle.kts (o build.gradle) y en defaultConfig pon:
+       minSdk = 24
+   (el escaner de codigos necesita Android 6 o superior).
+
+4) iPhone (solo si compilas para iOS) -> ios/Runner/Info.plist, dentro de <dict>:
+    <key>NSCameraUsageDescription</key>
+    <string>VeriMed BT usa la cámara para leer el número de serie y fotografiar el medidor.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>VeriMed BT registra la ubicación donde se realiza el ensayo.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>VeriMed BT guarda la foto del medidor junto al ensayo.</string>
+
+COMO SE USA
+-----------
+- Pestaña Ensayo -> en "N.º de serie del medidor" toca el icono del escaner y apunta
+  al codigo de barras o QR de la placa. Si el medidor no tiene codigo, se escribe a mano.
+- "Tomar foto del medidor": pide permiso de Ubicacion (la primera vez), abre la camara
+  y al volver muestra la foto, la direccion aproximada, las coordenadas GPS y la hora.
+- La foto y la ubicacion se guardan en el ensayo: aparecen en el historial, en el CSV
+  y en el informe PDF (seccion 4, con enlace a Google Maps y huella SHA-256 de la foto).
+- La direccion necesita internet; sin internet quedan igual las coordenadas GPS.

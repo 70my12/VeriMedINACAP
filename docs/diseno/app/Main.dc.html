@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Inicio · modo oscuro</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2fd39a}a:hover{color:#6fe5bb}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0a1424; color: #e8eef8; font-family: 'Inter Tight', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 28px 20px 16px">
+    <!-- Encabezado -->
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <svg width="38" height="38" viewBox="0 0 64 64" role="img" aria-label="Logo VeriMed BT">
+          <rect width="64" height="64" rx="14" fill="#12263f"/>
+          <path d="M7 32h10l5-14 7 28 3-7" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M33 31l7 8 15-21" fill="none" stroke="#22a47b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="52" cy="48" r="4" fill="#f5b321"/>
+        </svg>
+        <div style="display: flex; flex-direction: column">
+          <span style="font-size: 13px; color: #8fa1bd">Buenas tardes</span>
+          <span style="font-size: 19px; font-weight: 700">VeriMed BT</span>
+        </div>
+      </div>
+      <button aria-label="Notificaciones" style="width: 44px; height: 44px; border-radius: 14px; border: 1px solid #1f3350; background: #11203a; color: #c5d2e6; display: flex; align-items: center; justify-content: center; cursor: pointer">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      </button>
+    </div>
+
+    <!-- Equipo conectado -->
+    <div style="border-radius: 22px; padding: 18px; background: #11203a; border: 1px solid #1f3350; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 10px; height: 10px; border-radius: 50%; background: #2fd39a; box-shadow: 0 0 0 5px rgba(47,211,154,.18)"></span>
+          <span style="font-weight: 650; font-size: 15px">Equipo conectado</span>
+        </div>
+        <span style="font-size: 12px; color: #8fa1bd">VMBT7-0001 · FW 2.2.0</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <div style="background: #0d1a2e; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: #8fa1bd">Tensión</span>
+          <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums">221,4 <span style="font-size: 16px; color: #8fa1bd">V</span></span>
+        </div>
+        <div style="background: #0d1a2e; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: #8fa1bd">Corriente</span>
+          <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums">4,52 <span style="font-size: 16px; color: #8fa1bd">A</span></span>
+        </div>
+        <div style="background: #0d1a2e; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: #8fa1bd">Potencia</span>
+          <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; color: #2fd39a">1.000 <span style="font-size: 16px; color: #8fa1bd">W</span></span>
+        </div>
+        <div style="background: #0d1a2e; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: #8fa1bd">Factor de potencia</span>
+          <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums">0,99</span>
+        </div>
+      </div>
+      <svg width="100%" height="46" viewBox="0 0 320 46" preserveAspectRatio="none" aria-hidden="true">
+        <defs><linearGradient id="gA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fd39a" stop-opacity=".35"/><stop offset="1" stop-color="#2fd39a" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0 30 L20 28 L40 31 L60 26 L80 27 L100 22 L120 24 L140 20 L160 21 L180 18 L200 20 L220 17 L240 19 L260 16 L280 18 L300 15 L320 16 L320 46 L0 46Z" fill="url(#gA)"/>
+        <path d="M0 30 L20 28 L40 31 L60 26 L80 27 L100 22 L120 24 L140 20 L160 21 L180 18 L200 20 L220 17 L240 19 L260 16 L280 18 L300 15 L320 16" fill="none" stroke="#2fd39a" stroke-width="2"/>
+      </svg>
+    </div>
+
+    <!-- Acción principal -->
+    <a href="A-Ensayo.dc.html" style="text-decoration: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-radius: 20px; background: #2fd39a; color: #062018">
+      <span style="display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 18px; font-weight: 750">Nuevo ensayo</span>
+        <span style="font-size: 13px; color: #0b3b2b">Kc 1600 · 15 s · clase 1</span>
+      </span>
+      <span style="width: 44px; height: 44px; border-radius: 50%; background: #062018; color: #2fd39a; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      </span>
+    </a>
+
+    <!-- Últimos ensayos -->
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <span style="font-weight: 700; font-size: 16px">Últimos ensayos</span>
+        <a href="#" style="font-size: 13px; text-decoration: none">Ver todos</a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #11203a">
+        <span style="width: 40px; height: 40px; border-radius: 12px; background: rgba(47,211,154,.14); color: #2fd39a; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-11"/></svg></span>
+        <span style="flex: 1; display: flex; flex-direction: column"><span style="font-weight: 600; font-size: 14px">Medidor 2280431</span><span style="font-size: 12px; color: #8fa1bd">Hoy 16:42 · Kc 1600</span></span>
+        <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-weight: 700; font-size: 18px; color: #2fd39a">−0,35 %</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #11203a">
+        <span style="width: 40px; height: 40px; border-radius: 12px; background: rgba(255,120,120,.14); color: #ff8a8a; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+        <span style="flex: 1; display: flex; flex-direction: column"><span style="font-weight: 600; font-size: 14px">Medidor 1975520</span><span style="font-size: 12px; color: #8fa1bd">Ayer 11:05 · Kc 1000</span></span>
+        <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-weight: 700; font-size: 18px; color: #ff8a8a">+2,84 %</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra inferior -->
+  <nav aria-label="Secciones" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 8px 8px 22px; background: #0d1a2e; border-top: 1px solid #1a2c47">
+    <a href="#" style="text-decoration: none; color: #2fd39a; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 6px 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</a>
+    <a href="#" style="text-decoration: none; color: #8fa1bd; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; padding: 6px 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg>Conexión</a>
+    <a href="A-Ensayo.dc.html" style="text-decoration: none; color: #8fa1bd; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; padding: 6px 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>Ensayo</a>
+    <a href="A-Resultado.dc.html" style="text-decoration: none; color: #8fa1bd; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; padding: 6px 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6v18h12V7zM14 3v4h4M9 13h6M9 17h6"/></svg>Resultados</a>
+    <a href="#" style="text-decoration: none; color: #8fa1bd; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; padding: 6px 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Más</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

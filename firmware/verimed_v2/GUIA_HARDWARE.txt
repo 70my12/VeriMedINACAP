@@ -1,0 +1,90 @@
+VERIMED BT v2 - QUE COMPRAR Y COMO CONECTARLO
+=============================================
+
+Hoy tienes: ESP32-2432S028 (CYD 2.8" USB-C) + la app. Con eso TODO funciona ya en
+modo SIMULACION. Para mediciones reales faltan estos componentes:
+
+------------------------------------------------------------------
+A) IMPRESCINDIBLE (para que el verificador mida de verdad)
+------------------------------------------------------------------
+1. Medidor de referencia PZEM-004T v3.0 (100 A, con transformador de corriente
+   de nucleo partido / "split core" si lo encuentras: se abre y se pone sin cortar cables).
+   -> Entrega V, I, P, FP y frecuencia por UART. Exactitud aprox. 0,5 %.
+   -> Reemplaza la funcion simulada; en el firmware: USAR_PZEM = 1
+   -> Libreria Arduino: "PZEM-004T-v30" de Jakub Mandula (Gestor de librerias).
+
+2. Sensor optico para el LED de pulsos del medidor (uno de estos):
+   - Modulo fotodiodo/fototransistor con comparador LM393 y salida digital "DO"
+     (recomendado: es rapido). EVITA el modulo con LDR (fotorresistencia):
+     es lento y puede perder pulsos cortos del LED del medidor.
+   -> Firmware: USAR_SENSOR_PULSOS = 1
+   - Cinta aislante negra o un tubito opaco para taparlo de la luz ambiente
+     (o un soporte con ventosa impreso en 3D).
+
+3. Cables Molex PicoBlade 1,25 mm de 4 pines (los conectores CN1 y P3 del CYD).
+   Muchas CYD traen uno; necesitas 2. Mas cables dupont hembra-hembra.
+
+------------------------------------------------------------------
+B) PARA EL BANCO DE PRUEBA (lado de 220 V) - SEGURIDAD PRIMERO
+------------------------------------------------------------------
+4. Carga resistiva conocida: hervidor, estufa o un banco de ampolletas
+   incandescentes / halogenas (1 - 2 kW). Sirve tambien para los "puntos de carga".
+5. Fusible + portafusible para la linea, interruptor, regleta/terminales de riel DIN,
+   cable 2,5 mm2 y una caja plastica (ABS) cerrada para el PZEM.
+   ** Pide supervision del docente/laboratorio para todo lo que lleve 220 V. **
+
+------------------------------------------------------------------
+C) OPCIONAL (mejora la presentacion)
+------------------------------------------------------------------
+6. Parlante 8 ohm 1-2 W con conector 1,25 mm de 2 pines (conector P4): pitidos
+   por pulso, aprobado/rechazado y alarmas. Firmware: USAR_PARLANTE = 1
+7. Portatil: power bank USB-C, o bateria 18650 + cargador TP4056 con proteccion
+   + elevador a 5 V (MT3608). El CYD no tiene pin libre para medir la bateria.
+8. Caja impresa en 3D para el CYD.
+
+------------------------------------------------------------------
+NOTA SOBRE EL AD71056 DE TU INFORME
+------------------------------------------------------------------
+El AD71056 solo entrega PULSOS de energia (CF): no informa tension, corriente ni
+factor de potencia. Por eso el firmware usa el PZEM-004T, que trae todo eso
+(y la energia se integra en el ESP32 con una lectura cada 0,5 s).
+Si el proyecto debe usar el AD71056, conviene comentarlo con el profesor guia y
+ajustar el informe; se puede leer su salida CF en un pin libre, pero se pierden
+las lecturas de V, I y FP en pantalla.
+
+------------------------------------------------------------------
+CONEXIONES EN EL CYD (pines libres)
+------------------------------------------------------------------
+ Conector CN1 (GND, IO22, IO27, 3.3V)  ->  PZEM-004T (lado TTL)
+   GND  -> GND
+   IO22 -> RX   (ESP32 transmite)
+   IO27 -> TX   (ESP32 recibe)
+   3.3V -> 5V   (el PZEM v3 funciona a 3,3 V en su lado TTL)
+   (si no responde: revisa que el PZEM tenga 220 V conectados; su lado de medicion
+    se alimenta de la red y sin red no contesta)
+
+ Conector P3 (GND, IO35, IO22, IO21)  ->  sensor optico
+   GND  -> GND
+   IO35 -> DO   (salida digital; IO35 no tiene pull-up interno, el modulo lo trae)
+   VCC del sensor -> 3.3V de CN1 (empalme), NO uses IO21 (es la luz de la pantalla)
+
+ Conector P4 -> parlante 8 ohm (opcional)
+ LED RGB de la placa: azul = esperando pulso, verde = aprobado, rojo = rechazado/alarma
+
+ Lado 220 V (esquema del ensayo):
+   Red 220 V -> fusible -> MEDIDOR BAJO PRUEBA -> carga
+   PZEM: bornes de tension en paralelo a la red (despues del fusible) y el
+         transformador de corriente abrazando el cable de fase que va a la carga.
+   El sensor optico se pega sobre el LED "imp/kWh" del medidor bajo prueba.
+
+------------------------------------------------------------------
+PASO A PASO AL RECIBIR LOS COMPONENTES
+------------------------------------------------------------------
+ 1. Instala la libreria PZEM-004T-v30.
+ 2. Solo PZEM: USAR_PZEM = 1, sube el sketch, revisa que V/I/P sean reales.
+ 3. Agrega el sensor: USAR_SENSOR_PULSOS = 1. En el modulo LM393 ajusta el
+    potenciometro hasta que su LED parpadee junto con el LED del medidor.
+    Si cuenta al reves (cuenta al apagarse), cambia FLANCO_PULSO a RISING.
+ 4. Ensayo de prueba con una carga fija y 10 pulsos.
+ 5. Calibracion: compara contra un medidor patron del laboratorio y anota la
+    fecha en FECHA_CAL (aparece en el informe PDF).

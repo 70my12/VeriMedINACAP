@@ -1,0 +1,49 @@
+VERIMED BT - PASOS PARA ACTIVAR EL BLUETOOTH EN LA APP
+=====================================================
+
+1) Copia los archivos a tu proyecto Flutter
+   - lib/main.dart          (reemplaza el actual)
+   - lib/verimed_ble.dart   (archivo nuevo, va junto a main.dart)
+
+2) pubspec.yaml -> en "dependencies:" agrega:
+
+     flutter_blue_plus: ^2.3.14
+
+   Luego ejecuta:   flutter pub get
+
+   Nota: la app usa License.nonprofit de flutter_blue_plus (uso educativo / proyecto de titulo).
+   Si el proyecto pasa a ser comercial, la libreria exige License.commercial (de pago).
+
+3) ANDROID -> android/app/src/main/AndroidManifest.xml
+   Pega esto dentro de <manifest ...>, ANTES de la etiqueta <application ...>:
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="28" />
+
+   - android/app/build.gradle (o build.gradle.kts): minSdk debe ser 21 o mayor
+     (el valor por defecto de Flutter ya lo cumple).
+   - Los permisos se piden solos la primera vez que tocas "Buscar equipo VeriMed BT".
+   - En Android 11 o anterior hay que tener la UBICACION del telefono encendida para buscar.
+
+4) iPHONE -> ios/Runner/Info.plist, dentro de <dict>:
+
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>VeriMed BT usa Bluetooth para conectarse al equipo de medición.</string>
+
+5) Prueba
+   a) Sube verimed_bt.ino al ESP32 (Partition Scheme: "Huge APP (3MB No OTA/1MB SPIFFS)").
+   b) En la pantalla del equipo, la etiqueta Bluetooth debe decir VISIBLE.
+   c) Ejecuta la app en el TELEFONO FISICO (el emulador de Android no tiene Bluetooth).
+   d) Pestaña Conexion -> "Buscar equipo VeriMed BT" -> toca el equipo encontrado.
+   e) La pantalla del ESP32 cambia a CONECTADO y en Inicio aparecen V, A y W en vivo.
+   f) Pestaña Ensayo -> "Iniciar ensayo": el ESP32 empieza a medir; "Finalizar y guardar"
+      lo detiene y calcula el error con la energia medida por el equipo.
+      Tambien puedes iniciar/detener desde la pantalla del ESP32: la app se sincroniza.
+
+IMPORTANTE: el equipo NO aparece en Ajustes > Bluetooth del telefono. Es normal en BLE:
+solo se ve desde la app VeriMed BT (o desde nRF Connect para pruebas).

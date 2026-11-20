@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ===== Permisos VeriMed BT ===== -->
     <!-- Internet: Firebase (login) y envío del informe por correo -->
@@ -17,9 +18,14 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Ubicación GPS del ensayo (y búsqueda Bluetooth en Android 11 o inferior) -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Ubicación GPS del ensayo (y búsqueda Bluetooth en Android 11 o inferior).
+         IMPORTANTE: la librería de Bluetooth (flutter_blue_plus) declara estos permisos
+         solo hasta Android 11 (maxSdkVersion 30). tools:node="replace" reemplaza esa declaración; sin esto,
+         en Android 12 o superior la app NO puede pedir la ubicación. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        tools:node="replace" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"
+        tools:node="replace" />
     <!-- ================================ -->
 
     <application

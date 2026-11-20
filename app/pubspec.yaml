@@ -58,6 +58,8 @@ dependencies:
   image_picker: ^1.2.0
   # Ubicación GPS y dirección del ensayo
   geolocator: ^14.1.0
+  # Tipografía moderna de la app (Inter Tight)
+  google_fonts: ^6.2.1
   geocoding: ^5.0.0
 
 dev_dependencies:

@@ -1,0 +1,711 @@
+<title>Caja VeriMed BT</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: ficha de producto — visor 3D protagonista, luego caras del equipo, medidas y fabricación */
+:root{
+  --bg:#f3f6fb; --surface:#ffffff; --fg:#0b2545; --muted:#5b6b80; --line:#dde5f0;
+  --accent:#1e6fd9; --accent-soft:#e6effc; --hot:#d9541e; --hot-soft:#fdeee6;
+  --viewer-a:#eef2f8; --viewer-b:#dfe6f0;
+  --f-display:'Inter Tight',system-ui,sans-serif; --f-body:'Inter Tight',system-ui,sans-serif;
+  --f-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0a1424; --surface:#101e33; --fg:#e6edf7; --muted:#93a3b8; --line:#1f3150;
+  --accent:#5b9bf0; --accent-soft:#16294a; --hot:#f08a5b; --hot-soft:#3a2216; --viewer-a:#14243b; --viewer-b:#0b1626; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0a1424; --surface:#101e33; --fg:#e6edf7; --muted:#93a3b8; --line:#1f3150;
+  --accent:#5b9bf0; --accent-soft:#16294a; --hot:#f08a5b; --hot-soft:#3a2216; --viewer-a:#14243b; --viewer-b:#0b1626; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:24px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+.eyebrow{font:500 12px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:800 clamp(28px,4vw,42px)/1.05 var(--f-display);margin:4px 0 0;letter-spacing:-.025em;text-wrap:balance}
+.sub{color:var(--muted);max-width:64ch;margin:8px 0 0}
+.spec{display:flex;gap:22px;flex-wrap:wrap}
+.spec div{display:flex;flex-direction:column}
+.spec b{font:500 clamp(18px,2.2vw,24px) var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.spec small{font:500 11px var(--f-mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+
+.designs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;background:var(--surface);padding:6px;border-radius:16px}
+.designs button{font:600 14px var(--f-body);color:var(--fg);background:transparent;border:0;border-radius:11px;padding:10px 8px;cursor:pointer}
+.designs button b{font-family:var(--f-mono);color:var(--accent);margin-right:4px}
+.designs button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.designs button[aria-pressed="true"] b{color:var(--bg)}
+@media (max-width:560px){.designs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.handles{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:-12px}
+.handles span{font:500 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+.handles button{font:600 13px var(--f-body);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.handles button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.handles p{flex-basis:100%;margin:2px 0 0;font-size:14px;color:var(--muted);max-width:80ch}
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:16px}
+@media (max-width:900px){.stage{grid-template-columns:minmax(0,1fr)}}
+.viewer{position:relative;background:radial-gradient(120% 90% at 50% 35%,var(--viewer-a),var(--viewer-b));border-radius:22px;overflow:hidden;aspect-ratio:16/11;min-height:420px;max-width:100%}
+.viewer canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.viewer canvas:active{cursor:grabbing}
+.tools{position:absolute;left:12px;top:12px;right:12px;display:flex;flex-wrap:wrap;gap:6px}
+.tools .sep{width:1px;background:var(--line);margin:4px 2px}
+.tools button{font:600 13px var(--f-body);color:var(--fg);background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:10px;padding:7px 11px;cursor:pointer}
+.tools button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{position:absolute;left:14px;bottom:12px;font:12px var(--f-mono);color:var(--muted);max-width:calc(100% - 440px)}
+.swatches{position:absolute;right:12px;bottom:10px;display:flex;align-items:center;gap:8px;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:14px;padding:6px 10px}
+.swatches span{font:600 12px var(--f-body);min-width:92px}
+.swatches button{width:26px;height:26px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
+.swatches button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--fg)}
+@media (max-width:900px){.hint{display:none}}
+@media (max-width:520px){.swatches{left:12px;flex-wrap:wrap}.swatches span{width:100%}}
+.fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--muted)}
+
+.legend{background:var(--surface);border-radius:22px;padding:14px;display:flex;flex-direction:column;gap:2px;align-self:start}
+.legend h2{font:700 12px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:2px 6px 8px}
+.legend button{display:grid;grid-template-columns:14px minmax(0,1fr);gap:2px 10px;text-align:left;border:0;background:transparent;padding:8px 6px;border-radius:10px;width:100%;color:var(--fg);font:inherit;cursor:pointer}
+.legend button:hover,.legend button.on{background:var(--accent-soft)}
+.sw{width:14px;height:14px;border-radius:4px;margin-top:4px;border:1px solid var(--line)}
+.legend b{font-weight:600;font-size:14px}
+.legend span.m{grid-column:2;font:12px var(--f-mono);color:var(--muted)}
+
+.feat{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.feat{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:460px){.feat{grid-template-columns:minmax(0,1fr)}}
+.feat div{background:var(--surface);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:4px}
+.feat .k{font:500 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--accent)}
+.feat b{font-size:16px}
+.feat p{margin:0;font-size:14px;color:var(--muted)}
+
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
+section.card{background:var(--surface);border-radius:22px;padding:20px 22px;min-width:0}
+section.card h2{font:700 19px var(--f-display);margin:0 0 12px;letter-spacing:-.01em}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{display:inline-block;font:500 11px var(--f-mono);padding:2px 7px;border-radius:6px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.tag.hot{background:var(--hot-soft);color:var(--hot)}
+ul.notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px}
+.warn{background:var(--hot-soft);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.warn b{color:var(--hot)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow" id="eyebrow">VeriMed BT · Propuestas de carcasa</div>
+      <h1 id="title">Carcasas VeriMed BT</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="spec" id="spec"></div>
+  </header>
+
+  <div class="designs" role="group" aria-label="Diseño">
+    <button data-d="cuna" aria-pressed="true"><b>A</b> Cuña con manija</button>
+    <button data-d="maletin" aria-pressed="false"><b>B</b> Maletín</button>
+    <button data-d="torre" aria-pressed="false"><b>C</b> Torre</button>
+    <button data-d="capsula" aria-pressed="false"><b>D</b> Cápsula</button>
+  </div>
+
+  <div class="handles" id="handles" role="group" aria-label="Manija del diseño A">
+    <span>Manija</span>
+    <button data-h="arco" aria-pressed="true">Arco</button>
+    <button data-h="abatible" aria-pressed="false">Abatible</button>
+    <button data-h="integrada" aria-pressed="false">Integrada</button>
+    <button data-h="correa" aria-pressed="false">Correa</button>
+    <p id="handle-note"></p>
+  </div>
+
+  <div class="stage">
+    <div class="viewer" id="viewer">
+      <div class="fallback" id="fallback">Cargando vista 3D…</div>
+      <div class="tools" role="toolbar" aria-label="Vista">
+        <button id="b-iso" aria-pressed="true">3D</button>
+        <button id="b-front" aria-pressed="false">Frente</button>
+        <button id="b-side" aria-pressed="false">Perfil</button>
+        <button id="b-back" aria-pressed="false">Atrás</button>
+        <span class="sep" aria-hidden="true"></span>
+        <button id="b-xray" aria-pressed="false">Ver interior</button>
+        <button id="b-explode" aria-pressed="false">Despiece</button>
+        <button id="b-spin" aria-pressed="true">Girar</button>
+      </div>
+      <div class="hint">Arrastra para girar · rueda o pellizco para acercar · toca un componente en la lista</div>
+      <div class="swatches" role="group" aria-label="Color de la carcasa"><span id="pal-name">Blanco ártico</span></div>
+    </div>
+
+    <aside class="legend" aria-label="Componentes">
+      <h2>Componentes</h2>
+      <div id="legend"></div>
+    </aside>
+  </div>
+
+  <div class="feat" id="feat"></div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Medidas usadas</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>Pieza</th><th>Medida</th><th>Origen</th></tr></thead>
+        <tbody>
+          <tr><td>Resistencia: tubo</td><td class="n">Ø38 × 127 mm</td><td><span class="tag">medida</span></td></tr>
+          <tr><td>Resistencia: brida</td><td class="n">Ø60 mm</td><td><span class="tag">medida</span></td></tr>
+          <tr><td>Resistencia: motor</td><td class="n">75 mm</td><td><span class="tag">medida</span></td></tr>
+          <tr><td>Resistencia: largo total</td><td class="n">≈ 222 mm</td><td><span class="tag hot">estimado</span></td></tr>
+          <tr><td>Placa de medición</td><td class="n">100 × 100 mm</td><td><span class="tag">medida</span></td></tr>
+          <tr><td>Pantalla 7" VIEWE</td><td class="n">181 × 108 × 12 mm</td><td><span class="tag hot">confirmar</span></td></tr>
+          <tr><td>Fuente 5 V pantalla</td><td class="n">≈ 50 × 30 × 22 mm</td><td><span class="tag hot">confirmar</span></td></tr>
+          <tr><td>Pared de la carcasa</td><td class="n">3 mm</td><td><span class="tag">diseño</span></td></tr>
+          <tr><td>Banda de goma</td><td class="n">20 mm de alto</td><td><span class="tag">diseño</span></td></tr>
+        </tbody>
+      </table></div>
+      <p style="color:var(--muted);font-size:13px;margin:12px 0 0">El grosor de la brida (20 mm) y las medidas del módulo de pantalla son supuestos. Mídelos con pie de metro antes de imprimir: el fondo y la inclinación salen de ellos.</p>
+    </section>
+
+    <section class="card">
+      <h2>Fabricación y seguridad</h2>
+      <ul class="notes">
+        <li><b>Cuerpo:</b> PETG o ASA impreso en 3D, en dos piezas (base y cubierta) unidas con 6 tornillos M3 e insertos de bronce. No usar PLA: se deforma sobre 55 °C.</li>
+        <li><b>Banda y manija:</b> TPU 95A impreso, o la manija en PETG con cinta de goma.</li>
+        <li><b>Compartimento de la carga:</b> forrado con lámina de aluminio de 1 mm, que también separa la electrónica.</li>
+        <li><b>Flujo de aire:</b> entra por la izquierda (motor) y sale por la derecha (tubo). Cada rejilla con al menos 11 cm² libres.</li>
+        <li><b>Ventilador y resistencia juntos:</b> el relé enciende ambos. La resistencia nunca debe funcionar sin aire.</li>
+        <li><b>Recomendado:</b> termostato bimetálico normalmente cerrado de 120 °C (tipo KSD301) en serie con la carga.</li>
+        <li><b>Electrónica:</b> placa sobre separadores de 8 mm, a 10 mm o más de la lámina.</li>
+      </ul>
+      <div class="warn">
+        <b>La salida de aire puede superar los 100 °C durante el ensayo.</b>
+        <span>Los ensayos duran 15 a 60 s y el relé corta la carga al terminar, pero tras varios ensayos seguidos la rejilla derecha queda caliente. Va rotulada en la carcasa.</span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+  // ======================= Textos por diseño =======================
+  const INFO = {
+    cuna: {
+      eyebrow:'Diseño A · Cuña con manija', title:'Verificador portátil con pantalla inclinada',
+      sub:'Cuerpo en cuña con manija integrada y banda de goma perimetral. La pantalla de 7" queda inclinada 18° hacia el técnico; atrás, bajo la manija, va la resistencia de carga ventilada en su propio compartimento.',
+      spec:[['260 × 190 mm','largo × fondo'],['88 mm','alto, sin la correa'],['18°','inclinación pantalla']],
+      feat:[['Transporte','Correa de hombro','Se lleva colgado y se usa colgado: no hace falta una superficie para apoyarlo.'],['Terreno','Banda de goma','Perímetro inferior en TPU contra golpes y caídas, con patas antideslizantes.'],['Lectura','Pantalla a 18°','Se lee de pie, con el equipo en el suelo o sobre la caja del medidor.'],['Conexión','Panel frontal','Bornes de seguridad L y N hacia el medidor, rotulados.']],
+      action:'Despiece'
+    },
+    maletin: {
+      eyebrow:'Diseño B · Maletín rígido', title:'Maletín de contraste para terreno',
+      sub:'Estuche con tapa abisagrada y cierres de presión. Abierto, la pantalla queda en la cara interior de la tapa como un notebook y el panel de conexión con su bolsillo para cables queda abajo. Cerrado, la pantalla viaja protegida.',
+      spec:[['300 × 230 mm','largo × fondo'],['110 mm','alto cerrado'],['105°','apertura de la tapa']],
+      feat:[['Transporte','Manija plegable','Se lleva como un maletín; la manija se pliega contra el frente.'],['Terreno','Esquinas de goma','Cuatro topes verticales y nervios laterales absorben golpes.'],['Protección','Pantalla cubierta','Cerrado, la pantalla queda dentro: no se raya ni se moja.'],['Orden','Bolsillo para cables','Los cables de prueba viajan en la cubierta del panel.']],
+      action:'Cerrar maletín'
+    },
+    torre: {
+      eyebrow:'Diseño C · Torre vertical', title:'Torre compacta de pie',
+      sub:'La resistencia va de pie: el aire entra por los costados bajos y sale caliente por la parte trasera alta, lejos de las manos. La pantalla queda al frente, levemente inclinada, y ocupa muy poco espacio en el suelo.',
+      spec:[['220 × 120 mm','ancho × fondo'],['300 / 330 mm','alto sin / con manija'],['8°','inclinación pantalla']],
+      feat:[['Espacio','Huella mínima','Cabe junto al medidor en pasillos, nichos y escaleras.'],['Calor','Tiro natural','El aire caliente sube solo y sale por atrás, lejos del técnico.'],['Lectura','Pantalla a la vista','A la altura de la rodilla con el equipo en el suelo; se lee de pie.'],['Conexión','Bornes al frente','L y N abajo, lejos de la salida de aire.']],
+      action:'Despiece'
+    },
+    capsula: {
+      eyebrow:'Diseño D · Cápsula', title:'Cápsula con correa de hombro',
+      sub:'Cuerpo redondeado que sigue la forma de la resistencia, con tapas de goma en los extremos que hacen de parachoques y de rejilla. La pantalla queda en una cara plana a 45° y se lleva colgado al hombro con una correa.',
+      spec:[['290 × 190 mm','largo × fondo'],['154 mm','alto'],['45°','inclinación pantalla']],
+      feat:[['Transporte','Correa de hombro','Manos libres para subir escaleras o abrir la caja del medidor.'],['Terreno','Tapas de goma','Los extremos absorben golpes y llevan las rejillas de aire.'],['Lectura','Pantalla a 45°','Cómoda tanto sobre una mesa como en el suelo.'],['Imagen','Forma de producto','La más llamativa para la feria y la presentación final.']],
+      action:'Despiece'
+    }
+  };
+  function renderInfo(k){
+    const d = INFO[k];
+    document.getElementById('eyebrow').textContent = d.eyebrow;
+    document.getElementById('title').textContent = d.title;
+    document.getElementById('sub').textContent = d.sub;
+    const sp = document.getElementById('spec'); sp.innerHTML = '';
+    d.spec.forEach(([v,l]) => { const e = document.createElement('div'); e.innerHTML = '<b></b><small></small>'; e.querySelector('b').textContent = v; e.querySelector('small').textContent = l; sp.appendChild(e); });
+    const ft = document.getElementById('feat'); ft.innerHTML = '';
+    d.feat.forEach(([k2,b,p]) => { const e = document.createElement('div'); e.innerHTML = '<span class="k"></span><b></b><p></p>'; e.querySelector('.k').textContent = k2; e.querySelector('b').textContent = b; e.querySelector('p').textContent = p; ft.appendChild(e); });
+  }
+
+  const host = document.getElementById('viewer');
+  const fb = document.getElementById('fallback');
+  function noGL(msg){ fb.textContent = msg; }
+  if (!window.THREE || !THREE.OrbitControls) { noGL('No se pudo cargar la vista 3D. Las medidas y notas siguen siendo válidas.'); wireTabsOnly(); return; }
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({antialias:true, alpha:true}); } catch(e) { noGL('Este navegador no puede mostrar la vista 3D.'); wireTabsOnly(); return; }
+  function wireTabsOnly(){ document.querySelectorAll('.designs button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.designs button').forEach(x => x.setAttribute('aria-pressed', x === b)); renderInfo(b.dataset.d); })); renderInfo('cuna'); }
+  fb.remove();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  host.prepend(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(30, 16/11, 1, 8000);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.minDistance = 250; controls.maxDistance = 1800;
+  controls.autoRotate = true; controls.autoRotateSpeed = 0.8;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7a90, 0.75));
+  const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(300, 600, 420);
+  key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+  Object.assign(key.shadow.camera, {left:-360,right:360,top:420,bottom:-360,near:10,far:2000});
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 0.35); rim.position.set(-400, 250, -300); scene.add(rim);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), new THREE.ShadowMaterial({opacity:.16}));
+  ground.rotation.x = -Math.PI/2; ground.position.y = -12; ground.receiveShadow = true; scene.add(ground);
+
+  // ======================= Utilidades =======================
+  const M = (c, o) => new THREE.MeshStandardMaterial(Object.assign({color:c, roughness:.5, metalness:.05}, o||{}));
+  const B = (w,h,d) => new THREE.BoxGeometry(w,h,d);
+  const C = (r,l,s) => new THREE.CylinderGeometry(r,r,l,s||40);
+  function add(g, geo, m, x, y, z){ const me = new THREE.Mesh(geo, m); me.position.set(x||0, y||0, z||0); me.castShadow = me.receiveShadow = !m.isMeshBasicMaterial; g.add(me); return me; }
+  function label(lines, w, h, opt){
+    opt = opt || {};
+    const s = 6, cv = document.createElement('canvas'); cv.width = w*s; cv.height = h*s;
+    const c = cv.getContext('2d');
+    if (opt.bg) { c.fillStyle = opt.bg; c.fillRect(0,0,cv.width,cv.height); }
+    lines.forEach(([t, size, color, x, y, weight, align]) => { c.fillStyle = color; c.font = (weight||700)+' '+(size*s)+'px "Inter Tight", sans-serif'; c.textAlign = align||'left'; c.fillText(t, x*s, y*s); });
+    const tex = new THREE.CanvasTexture(cv); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({map:tex, transparent:!opt.bg}));
+  }
+  function profile(pts, r){
+    const sh = new THREE.Shape(), n = pts.length;
+    for (let i = 0; i < n; i++){
+      const rr = Array.isArray(r) ? r[i] : r;
+      const p = pts[i], a = pts[(i-1+n)%n], b = pts[(i+1)%n];
+      const va = new THREE.Vector2(a[0]-p[0], a[1]-p[1]).normalize(), vb = new THREE.Vector2(b[0]-p[0], b[1]-p[1]).normalize();
+      const p1 = [p[0]+va.x*rr, p[1]+va.y*rr], p2 = [p[0]+vb.x*rr, p[1]+vb.y*rr];
+      if (i === 0) sh.moveTo(p1[0], p1[1]); else sh.lineTo(p1[0], p1[1]);
+      sh.quadraticCurveTo(p[0], p[1], p2[0], p2[1]);
+    }
+    sh.closePath(); return sh;
+  }
+  // perfil en el plano (z, y) extruido a lo largo de X
+  function bodyX(g, pts, r, len, bevel, m){
+    const shape = profile(pts.map(([z,y]) => [-z, y]), r);
+    const geo = new THREE.ExtrudeGeometry(shape, {depth: len - 2*bevel, bevelEnabled:true, bevelSize:bevel, bevelThickness:bevel, bevelSegments:5, curveSegments:14});
+    geo.translate(0, 0, -(len - 2*bevel)/2);
+    const me = add(g, geo, m); me.rotation.y = Math.PI/2; return me;
+  }
+  function arc(g, pts, r, m){ const cu = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)), false, 'centripetal'); return add(g, new THREE.TubeGeometry(cu, 80, r, 20, false), m); }
+
+  // ======================= Materiales compartidos =======================
+  const shellMat = M(0xeef1f5, {roughness:.42, transparent:true});
+  const handleMat = M(0xeef1f5, {roughness:.42});
+  const padMat = M(0xd5dbe3);
+  const rubber = M(0x2a2f38, {roughness:.85});
+  const accent = M(0x1e6fd9, {roughness:.35, emissive:0x0b2a5c, emissiveIntensity:.25});
+  const ventFin = M(0xdfe4ea, {roughness:.5});
+  const ventDark = M(0x1a1f27, {roughness:.9});
+  const deckMat = M(0x2b313a, {roughness:.7, transparent:true});
+  const metal = M(0xa9b3c1, {metalness:.85, roughness:.28});
+  const ledMats = [];
+
+  // Interfaz de la pantalla (diseño B de la app)
+  const ui = document.createElement('canvas'); ui.width = 800; ui.height = 480;
+  (function(){
+    const u = ui.getContext('2d');
+    const rr = (x,y,w,h,r) => { u.beginPath(); if (u.roundRect) u.roundRect(x,y,w,h,r); else u.rect(x,y,w,h); u.fill(); };
+    u.fillStyle = '#f3f6fb'; u.fillRect(0,0,800,480);
+    u.fillStyle = '#0b2545'; u.fillRect(0,0,800,64);
+    u.fillStyle = '#fff'; u.font = '700 30px "Inter Tight",sans-serif'; u.fillText('VeriMed BT', 24, 43);
+    u.fillStyle = '#3fc69a'; u.beginPath(); u.arc(760, 32, 9, 0, 7); u.fill();
+    const tile = (x,y,lab,val) => { u.fillStyle = '#fff'; rr(x,y,368,110,18); u.fillStyle = '#5b6b80'; u.font = '500 20px "Inter Tight",sans-serif'; u.fillText(lab, x+22, y+36); u.fillStyle = '#0b2545'; u.font = '700 46px "Inter Tight",sans-serif'; u.fillText(val, x+22, y+88); };
+    tile(24,86,'Tensión','221,4 V'); tile(408,86,'Corriente','4,52 A'); tile(24,212,'Potencia','1.001 W'); tile(408,212,'Medidor · Kc','1600 imp/kWh');
+    u.fillStyle = '#1e6fd9'; rr(24,346,752,98,22);
+    u.fillStyle = '#fff'; u.font = '700 34px "Inter Tight",sans-serif'; u.textAlign = 'center'; u.fillText('Iniciar ensayo · 6 pulsos · 15 s', 400, 407);
+  })();
+  const uiTex = new THREE.CanvasTexture(ui); uiTex.encoding = THREE.sRGBEncoding; uiTex.anisotropy = 8;
+
+  // Pantalla: mirando a +Y, centrada en el origen
+  function displayModule(fw, fd){
+    const g = new THREE.Group();
+    add(g, B(fw||198, 2.4, fd||124), M(0x1b2230, {roughness:.6}), 0, 0.4, 0);
+    add(g, B(186, 1.2, 112), M(0x0d141d, {roughness:.08, metalness:.3}), 0, 1.8, 0);
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(154, 92.4), new THREE.MeshBasicMaterial({map:uiTex}));
+    s.rotation.x = -Math.PI/2; s.position.y = 2.45; g.add(s);
+    add(g, B(181, 12, 108), M(0x2b3442), 0, -8, 0);
+    return g;
+  }
+  // Resistencia a lo largo de +X desde el origen: motor 0–75, brida 75–95, tubo 95–222
+  function heater(){
+    const g = new THREE.Group();
+    add(g, C(17, 75), M(0xb9925a, {metalness:.55, roughness:.35}), 37.5, 0, 0).rotation.z = Math.PI/2;
+    add(g, C(30, 20), M(0x1b1f26, {roughness:.8}), 85, 0, 0).rotation.z = Math.PI/2;
+    add(g, C(19, 127), M(0xdfe5ec, {metalness:.95, roughness:.18}), 158.5, 0, 0).rotation.z = Math.PI/2;
+    return g;
+  }
+  // Placa de medición: plano XZ, cara de componentes hacia +Y
+  function pcb(){
+    const g = new THREE.Group();
+    add(g, B(100, 1.6, 100), M(0x15191f, {roughness:.6}));
+    add(g, B(27, 3, 54), M(0x2b6ee0), 37, 2.3, 10);
+    add(g, B(19, 15, 16), M(0x2f6fdc), -37, 8.3, -26);
+    add(g, B(34, 18, 20), M(0x2c2f36), -29, 9.8, 34);
+    [[-41,12],[11,-28]].forEach(([x,z]) => add(g, C(6, 13, 20), M(0x2d3a4f), x, 7.3, z));
+    [[-45,-45],[-45,45],[45,-45],[45,45]].forEach(([x,z]) => add(g, C(2.5, 8, 12), M(0xb0b8c4), x, -4.8, z));
+    return g;
+  }
+  function psu(){ const g = new THREE.Group(); add(g, B(50, 22, 30), M(0x556070)); return g; }
+  // Bornes de seguridad mirando a +Z
+  function sockets(g, x, y, z, w){
+    const panel = label([['L',6,'#d23b41',29,11.5,800],['N',6,'#5b6b80',53,11.5,800],['MEDIDOR · 220 V',5,'#d9541e',70,11,700]], w||120, 18, {bg:'#e3e8ee'});
+    panel.position.set(x + (w||120)/2 - 15, y, z + 0.3); g.add(panel);
+    [[0,0xd23b41],[24,0x22262e]].forEach(([dx,c]) => { const s = new THREE.Group(); add(s, C(7.5, 6, 32), M(c, {roughness:.35})); add(s, C(2.2, 6.4, 16), M(0x0a0c10)); s.rotation.x = Math.PI/2; s.position.set(x + dx + 4, y, z + 3); g.add(s); });
+  }
+  function iec(g, x, y, z, rotY){
+    const s = new THREE.Group();
+    add(s, B(48, 30, 4), M(0x1b1f26)); add(s, B(15, 11, 2), M(0xd23b41, {emissive:0x400000}), 13, 6, 2.5); add(s, B(20, 13, 2), M(0x0a0c10), -9, -4, 2.5);
+    s.position.set(x, y, z); s.rotation.y = rotY||0; g.add(s);
+  }
+  // Rejilla de aletas sobre una cara; normal local +Z
+  function vent(w, h, n){
+    const g = new THREE.Group();
+    add(g, B(w, h, 1.5), ventDark);
+    for (let i = 0; i < n; i++) add(g, B(2.6, h-4, 3), ventFin, -w/2 + w/(n+1)*(i+1), 0, 0.8);
+    return g;
+  }
+  function powerButton(g, x, y, z){ add(g, C(7, 3, 32), M(0x1b2230), x, y+1.5, z); add(g, C(4.5, 1, 32), accent, x, y+3.2, z); const led = add(g, B(3, 1.2, 26), new THREE.MeshBasicMaterial({color:0x3fc69a}), x, y+1.2, z+34); ledMats.push(led.material); }
+  const brands = [];
+  function brand(g, w){ const m = label([['VeriMed',13,'#0b2545',2,14,800],['BT',13,'#1e6fd9',63,14,800]], 84, 18); g.add(m); brands.push(m); return m; }
+  function arrowMesh(dir, col){
+    const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.9});
+    const s = new THREE.Mesh(C(2.2, 26, 12), m); s.rotation.z = Math.PI/2; g.add(s);
+    const h = new THREE.Mesh(new THREE.ConeGeometry(6.5, 12, 18), m); h.rotation.z = -Math.PI/2; h.position.x = 19; g.add(h);
+    g.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0), dir.clone().normalize());
+    return g;
+  }
+
+  // ======================= Diseños =======================
+  const designs = {};
+  function makeDesign(k){
+    const root = new THREE.Group(); root.visible = false; scene.add(root);
+    const d = {k, root, groups:{}, legend:[], arrows:[], xray:[shellMat], interior:[], views:{}, target:new THREE.Vector3(0,50,0), explode(){}, };
+    d.part = (key, name, meta, color, parent) => { const g = new THREE.Group(); (parent||root).add(g); d.groups[key] = g; d.legend.push({key,name,meta,color}); return g; };
+    d.arrow = (pos, dir, hot, follow) => { const a = arrowMesh(dir, hot ? 0xd9541e : 0x1e6fd9); root.add(a); d.arrows.push({a, pos:new THREE.Vector3(...pos), dir:dir.clone().normalize(), follow}); };
+    designs[k] = d; return d;
+  }
+  const X = new THREE.Vector3(1,0,0), Z = new THREE.Vector3(0,0,1);
+
+  // ---------- A · Cuña ----------
+  (function(){
+    const d = makeDesign('cuna'), root = d.root; d.target.set(0, 50, 0);
+    const L = 260, ZF = 95, ZB = -95, YF = 50, YB = 88, ZS = -22, tilt = Math.atan2(YB - YF, ZF - ZS);
+    const shellG = d.part('cubierta','Cubierta superior','PETG/ASA · 3 mm','#eef1f5');
+    bodyX(shellG, [[ZF-4,22],[ZF-4,YF-4],[ZS,YB-4],[ZB+4,YB-4],[ZB+4,22]], 9, L-8, 4, shellMat);
+    const bandG = d.part('banda','Base y banda de goma','TPU 95A · 20 mm','#2a2f38');
+    bodyX(bandG, [[ZF,-4],[ZF,24],[ZB,24],[ZB,-4]], 8, L, 5, rubber);
+    add(bandG, B(L-30, 2.2, 1.2), accent, 0, 16, ZF+5.4);
+    [[-105,-75],[105,-75],[-105,75],[105,75]].forEach(([x,z]) => add(bandG, C(9,5,24), rubber, x, -9.5, z));
+    const slant = new THREE.Group(); slant.position.set(0, (YF+YB)/2, (ZF+ZS)/2); slant.rotation.x = tilt; shellG.add(slant);
+    const scr = d.part('pantalla','Pantalla 7" VIEWE','en la cara inclinada · confirmar medidas','#0b2545', slant); scr.add(displayModule());
+    powerButton(slant, 112, 0, -22);
+    const br = brand(shellG); br.rotation.y = Math.PI/2; br.position.set(L/2 + 0.4, 46, 40);
+    const hG = d.part('manija','Manija','4 variantes · elige abajo de las pestañas','#1e6fd9', shellG);
+    const zH = (ZB + ZS)/2, HV = {};
+    // 1 · Arco sobre la tapa
+    HV.arco = new THREE.Group(); hG.add(HV.arco);
+    arc(HV.arco, [[-88,YB-6,zH],[-86,YB+20,zH],[-64,YB+32,zH],[64,YB+32,zH],[86,YB+20,zH],[88,YB-6,zH]], 9, handleMat);
+    add(HV.arco, C(11, 104, 32), rubber, 0, YB+32, zH).rotation.z = Math.PI/2;
+    [-52, 52].forEach(x => add(HV.arco, C(11.6, 4, 32), accent, x, YB+32, zH).rotation.z = Math.PI/2);
+    [-88, 88].forEach(x => add(HV.arco, C(15, 4, 32), padMat, x, YB-3.5, zH));
+    // 2 · Abatible: estribo en U que gira en los costados y sirve de atril
+    HV.abatible = new THREE.Group(); hG.add(HV.abatible);
+    const bail = new THREE.Group(); bail.position.set(0, 60, -8); bail.rotation.x = -0.42; HV.abatible.add(bail);
+    [-1, 1].forEach(s => {
+      add(bail, B(8, 80, 18), handleMat, s*(L/2 + 7), 40, 0);
+      add(bail, C(13, 6, 32), accent, s*(L/2 + 5), 0, 0).rotation.z = Math.PI/2;
+      add(bail, C(6, 9, 20), padMat, s*(L/2 + 10), 0, 0).rotation.z = Math.PI/2;
+    });
+    add(bail, B(L + 22, 12, 18), handleMat, 0, 82, 0);
+    add(bail, C(10, 120, 32), rubber, 0, 82, 0).rotation.z = Math.PI/2;
+    // 3 · Integrada: puente trasero del mismo cuerpo, con hueco para los dedos
+    HV.integrada = new THREE.Group(); hG.add(HV.integrada);
+    bodyX(HV.integrada, [[-62,114],[-62,124],[-92,124],[-92,114]], 5, L - 8, 4, handleMat);
+    [-1, 1].forEach(s => { const post = new THREE.Group(); post.position.x = s*(L/2 - 18); HV.integrada.add(post); bodyX(post, [[-62,YB-6],[-62,124],[-92,124],[-92,YB-6]], 5, 36, 4, handleMat); });
+    add(HV.integrada, B(L - 90, 3, 30), rubber, 0, 109.5, -77);
+    add(HV.integrada, B(L - 90, 1.6, 1.2), accent, 0, 120, -57.6);
+    // 4 · Correa de hombro con anclajes laterales
+    HV.correa = new THREE.Group(); hG.add(HV.correa);
+    [-1, 1].forEach(s => { add(HV.correa, B(8, 22, 18), padMat, s*(L/2 + 4), 62, -8); add(HV.correa, C(5, 10, 20), accent, s*(L/2 + 8), 62, -8).rotation.z = Math.PI/2; });
+    arc(HV.correa, [[-(L/2+10),66,-8],[-(L/2+4),150,-14],[-70,185,-20],[70,185,-20],[(L/2+4),150,-14],[(L/2+10),66,-8]], 4, rubber);
+    add(HV.correa, B(110, 7, 34), accent, 0, 187, -20);
+    d.setHandle = k => { Object.entries(HV).forEach(([n, g]) => g.visible = n === k); d.handle = k; };
+    d.setHandle('correa');
+    const vG = d.part('rejillas','Rejillas de aire','entra izq. · sale caliente der.','#3a4250', shellG);
+    [-1,1].forEach(s => { const v = vent(64, 38, 7); v.rotation.y = s * Math.PI/2; v.position.set(s*(L/2+0.2), 52, -58); vG.add(v); });
+    const hot = label([['AIRE CALIENTE',8,'#d9541e',30,10,800,'center']], 60, 13); hot.rotation.y = Math.PI/2; hot.position.set(L/2+0.4, 79, -58); vG.add(hot);
+    const cG = d.part('conectores','Conectores','bornes L/N · IEC C14','#0e8a63', shellG);
+    sockets(cG, -110, 39, ZF); iec(cG, -L/2 - 2, 45, 50, -Math.PI/2);
+    const inner = new THREE.Group(); root.add(inner);
+    const dv = d.part('lamina','Lámina separadora','aluminio 1 mm','#9aa6b6', inner); add(dv, B(L-14, 78, 1.5), metal, 0, 44, ZS + 2);
+    const hz = d.part('resistencia','Resistencia de carga 1 kW','Ø38 × 127 + brida Ø60 + motor 75','#d9541e', inner);
+    const h = heater(); h.position.set(-112, 40, -58); hz.add(h); [-70, 60].forEach(x => add(hz, B(10, 18, 34), metal, x, 12, -58));
+    const pc = d.part('placa','Placa de medición','100 × 100 mm · 2× AD71056','#1e6fd9', inner); const p = pcb(); p.position.set(-55, 12, 36); pc.add(p);
+    const ps = d.part('fuente','Fuente 5 V pantalla','HLK-10M05 · confirmar','#556070', inner); const q = psu(); q.position.set(62, 14, 40); ps.add(q);
+    d.interior = ['resistencia','lamina','placa','fuente'];
+    d.arrow([-L/2-52, 46, -58], X, false, inner); d.arrow([L/2+6, 46, -58], X, true, inner);
+    d.views = { iso:[420,300,470], front:[0,170,640], side:[660,120,0], back:[-320,260,-480] };
+    d.explode = ex => { shellG.position.y = ex*120; inner.position.y = ex*30; };
+  })();
+
+  // ---------- B · Maletín ----------
+  (function(){
+    const d = makeDesign('maletin'), root = d.root; d.target.set(0, 90, 0); d.xray = [shellMat, deckMat];
+    const L = 300, ZF = 115, ZB = -115, HB = 75, HL = 35;
+    const baseG = d.part('cubierta','Cuerpo y tapa','PETG/ASA · nervios laterales','#eef1f5');
+    bodyX(baseG, [[ZF-6,6],[ZF-6,HB-6],[ZB+6,HB-6],[ZB+6,6]], 10, L, 6, shellMat);
+    [25, 50].forEach(y => { add(baseG, B(L-40, 3, 1.2), rubber, 0, y, ZF+0.4); add(baseG, B(L-40, 3, 1.2), rubber, 0, y, ZB-0.4); });
+    const bG = d.part('banda','Topes de goma','TPU 95A · 4 esquinas','#2a2f38');
+    [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz]) => add(bG, C(11, HB+4, 24), rubber, sx*(L/2-6), HB/2, sz*(ZF-6)));
+    [[-120,-90],[120,-90],[-120,90],[120,90]].forEach(([x,z]) => add(bG, C(10,5,24), rubber, x, -2.5, z));
+    // cubierta del panel
+    const deck = d.part('panel','Panel de conexión','bornes, encendido y bolsillo para cables','#2b313a');
+    add(deck, B(L-16, 1.5, 2*ZF-16), deckMat, 0, HB+0.8, 0);
+    const pocket = add(deck, B(150, 1, 72), M(0x1c2128, {roughness:.95}), 30, HB+1.8, 55);
+    const pl = label([['CABLES DE PRUEBA',6,'#93a3b8',75,8,700,'center']], 150, 11); pl.rotation.x = -Math.PI/2; pl.position.set(30, HB+2.4, 98); deck.add(pl);
+    const sk = new THREE.Group(); sk.rotation.x = -Math.PI/2; sk.position.set(0, HB+1.6, 0); deck.add(sk);
+    sockets(sk, -128, -60, 0, 120);
+    powerButton(deck, 120, HB+1.5, 30);
+    // cierres y bisagras
+    [-90, 90].forEach(x => { add(baseG, B(30, 22, 7), accent, x, HB-6, ZF+3.5); add(baseG, C(5, 40, 20), metal, x, HB, ZB-2).rotation.z = Math.PI/2; });
+    // manija plegada al frente
+    const hG = d.part('manija','Manija plegable','PETG + agarre TPU','#1e6fd9', baseG);
+    arc(hG, [[-62,58,ZF],[-60,52,ZF+16],[-42,48,ZF+24],[42,48,ZF+24],[60,52,ZF+16],[62,58,ZF]], 7, handleMat);
+    add(hG, C(10, 76, 32), rubber, 0, 48, ZF+24).rotation.z = Math.PI/2;
+    [-62, 62].forEach(x => add(hG, B(18, 18, 6), padMat, x, 58, ZF+2));
+    // tapa con pantalla
+    const lidPivot = new THREE.Group(); lidPivot.position.set(0, HB, ZB); root.add(lidPivot);
+    const lid = d.part('tapa','Tapa con pantalla','pantalla 7" en la cara interior','#0b2545', lidPivot);
+    bodyX(lid, [[2*ZF-6,6],[2*ZF-6,HL-6],[6,HL-6],[6,6]], 10, L, 6, shellMat);
+    add(lid, B(L-40, 3, 1.2), rubber, 0, HL/2, 2*ZF+0.4);
+    add(lid, B(L-16, 1, 2*ZF-16), M(0x1c2128, {roughness:.9}), 0, -0.3, ZF);
+    const dm = displayModule(); dm.rotation.x = Math.PI; dm.position.set(0, -0.8, ZF); lid.add(dm);
+    const br = brand(lid); br.rotation.x = -Math.PI/2; br.position.set(0, HL+0.3, ZF);
+    // costados
+    const vG = d.part('rejillas','Rejillas de aire','entra izq. · sale caliente der.','#3a4250', baseG);
+    [-1,1].forEach(s => { const v = vent(70, 40, 8); v.rotation.y = s*Math.PI/2; v.position.set(s*(L/2+0.2), 38, -62); vG.add(v); });
+    const hot = label([['AIRE CALIENTE',8,'#d9541e',30,10,800,'center']], 60, 13); hot.rotation.y = Math.PI/2; hot.position.set(L/2+0.4, 66, -62); vG.add(hot);
+    iec(vG, -L/2-2, 38, 50, -Math.PI/2);
+    // interior bajo el panel
+    const inner = new THREE.Group(); root.add(inner);
+    const dv = d.part('lamina','Lámina separadora','aluminio 1 mm','#9aa6b6', inner); add(dv, B(L-20, 66, 1.5), metal, 0, 38, -22);
+    const hz = d.part('resistencia','Resistencia de carga 1 kW','a lo largo, detrás','#d9541e', inner); const h = heater(); h.position.set(-111, 38, -62); hz.add(h);
+    [-70, 60].forEach(x => add(hz, B(10, 16, 34), metal, x, 11, -62));
+    const pc = d.part('placa','Placa de medición','bajo el panel, al frente','#1e6fd9', inner); const p = pcb(); p.position.set(-70, 14, 48); pc.add(p);
+    const ps = d.part('fuente','Fuente 5 V pantalla','HLK-10M05 · confirmar','#556070', inner); const q = psu(); q.position.set(70, 15, 50); ps.add(q);
+    d.interior = ['resistencia','lamina','placa','fuente'];
+    d.arrow([-L/2-52, 38, -62], X, false); d.arrow([L/2+6, 38, -62], X, true);
+    d.views = { iso:[480,430,560], front:[0,260,760], side:[760,200,0], back:[-380,380,-560] };
+    d.lidOpen = 1;
+    d.explode = ex => { d.lidAngle = -1.83 * ex; lidPivot.rotation.x = d.lidAngle; };
+    d.explodeGoal = () => d.actionOn ? 0 : 1;
+  })();
+
+  // ---------- C · Torre ----------
+  (function(){
+    const d = makeDesign('torre'), root = d.root; d.target.set(0, 150, 0);
+    const W = 220, ZF = 60, ZB = -60, H = 300;
+    const shellG = d.part('cubierta','Cuerpo','PETG/ASA · 3 mm','#eef1f5');
+    bodyX(shellG, [[ZF-5,22],[ZF-5,168],[ZF-23,H-5],[ZB+5,H-5],[ZB+5,22]], [10,8,10,14,10], W, 5, shellMat);
+    const bandG = d.part('banda','Base de goma','TPU 95A · 24 mm','#2a2f38');
+    bodyX(bandG, [[ZF+2,-4],[ZF+2,26],[ZB-2,26],[ZB-2,-4]], 8, W+4, 5, rubber);
+    add(bandG, B(W-30, 2.2, 1.2), accent, 0, 17, ZF+7.4);
+    [[-90,-45],[90,-45],[-90,45],[90,45]].forEach(([x,z]) => add(bandG, C(9,5,24), rubber, x, -9.5, z));
+    const phi = Math.atan2(18, 128);
+    const slant = new THREE.Group(); slant.position.set(0, 232, 51.5); slant.rotation.x = Math.PI/2 - phi; shellG.add(slant);
+    const scr = d.part('pantalla','Pantalla 7" VIEWE','al frente, inclinada 8° · confirmar','#0b2545', slant); scr.add(displayModule(198, 120));
+    const br = brand(shellG); br.position.set(-40, 140, ZF + 0.3);
+    powerButton(new THREE.Group(), 0, 0, 0);
+    const pb = new THREE.Group(); pb.rotation.x = Math.PI/2; pb.position.set(86, 142, ZF); shellG.add(pb);
+    add(pb, C(7, 3, 32), M(0x1b2230), 0, 1.5, 0); add(pb, C(4.5, 1, 32), accent, 0, 3.2, 0);
+    const led = add(pb, B(3, 1.2, 20), new THREE.MeshBasicMaterial({color:0x3fc69a}), 0, 1.2, 18); led.rotation.y = Math.PI/2; ledMats.push(led.material);
+    const hG = d.part('manija','Manija superior','arco PETG + agarre TPU','#1e6fd9', shellG);
+    arc(hG, [[-80,H-6,-12],[-78,H+18,-12],[-58,H+30,-12],[58,H+30,-12],[78,H+18,-12],[80,H-6,-12]], 9, handleMat);
+    add(hG, C(11, 96, 32), rubber, 0, H+30, -12).rotation.z = Math.PI/2;
+    [-48, 48].forEach(x => add(hG, C(11.6, 4, 32), accent, x, H+30, -12).rotation.z = Math.PI/2);
+    [-80, 80].forEach(x => add(hG, C(14, 4, 32), padMat, x, H-3, -12));
+    const vG = d.part('rejillas','Rejillas de aire','entra por los costados · sale atrás arriba','#3a4250', shellG);
+    [-1,1].forEach(s => { const v = vent(70, 60, 8); v.rotation.y = s*Math.PI/2; v.position.set(s*(W/2+0.2), 70, -20); vG.add(v); });
+    const out = vent(150, 52, 14); out.rotation.y = Math.PI; out.position.set(0, 255, ZB-0.2); vG.add(out);
+    const hot = label([['AIRE CALIENTE',8,'#d9541e',30,10,800,'center']], 60, 13); hot.rotation.y = Math.PI; hot.position.set(0, 290, ZB-0.4); vG.add(hot);
+    const cG = d.part('conectores','Conectores','bornes L/N · IEC C14','#0e8a63', shellG);
+    sockets(cG, -60, 62, ZF); iec(cG, -W/2-2, 140, 0, -Math.PI/2);
+    const inner = new THREE.Group(); root.add(inner);
+    const dv = d.part('lamina','Lámina separadora','aluminio 1 mm, vertical','#9aa6b6', inner);
+    const sheet = add(dv, B(W-14, 200, 1.5), metal, 0, 130, 14);
+    const hz = d.part('resistencia','Resistencia de carga 1 kW','de pie, motor abajo','#d9541e', inner);
+    const h = heater(); h.rotation.z = Math.PI/2; h.position.set(-10, 12, -25); hz.add(h);
+    const pc = d.part('placa','Placa de medición','vertical, tras el frente','#1e6fd9', inner);
+    const p = pcb(); p.rotation.x = -Math.PI/2; p.position.set(-45, 90, 44); pc.add(p);
+    const ps = d.part('fuente','Fuente 5 V pantalla','HLK-10M05 · confirmar','#556070', inner); const q = psu(); q.position.set(62, 90, 36); ps.add(q);
+    d.interior = ['resistencia','lamina','placa','fuente'];
+    d.arrow([-W/2-52, 70, -20], X, false); d.arrow([W/2+52, 70, -20], X.clone().negate(), false);
+    d.arrow([0, 255, ZB-8], Z.clone().negate(), true);
+    d.views = { iso:[540,500,660], front:[0,220,900], side:[900,210,0], back:[-460,420,-660] };
+    d.explode = ex => { shellG.position.y = ex*170; };
+  })();
+
+  // ---------- D · Cápsula ----------
+  (function(){
+    const d = makeDesign('capsula'), root = d.root; d.target.set(0, 70, 0);
+    const L = 250, bev = 14;
+    const pts = [[81,14],[81,48],[-9,140],[-81,140],[-81,14]];
+    const shellG = d.part('cubierta','Cuerpo','PETG/ASA · formas suaves','#eef1f5');
+    bodyX(shellG, pts, [22,12,14,46,24], L, bev, shellMat);
+    const capG = d.part('banda','Tapas de goma','TPU 95A · parachoques y rejilla','#2a2f38');
+    const big = pts.map(([z,y]) => [z*1.04, y*1.03 - 1]);
+    [-1,1].forEach(s => { const g = new THREE.Group(); capG.add(g); bodyX(g, big, [24,13,15,48,26], 26, 7, rubber); g.position.x = s*(L/2 + 4); });
+    [[-100,-70],[100,-70],[-100,70],[100,70]].forEach(([x,z]) => add(capG, C(9,5,24), rubber, x, -2.5, z));
+    const vG = d.part('rejillas','Rejillas de aire','en las tapas: entra izq. · sale der.','#3a4250', capG);
+    [-1,1].forEach(s => {
+      const r = new THREE.Group(); r.position.set(s*(L/2 + 18.3), 57, -38); r.rotation.y = s*Math.PI/2; vG.add(r);
+      add(r, new THREE.CircleGeometry(30, 40), ventDark);
+      [10, 18, 26].forEach(rad => add(r, new THREE.TorusGeometry(rad, 1.6, 8, 48), ventFin, 0, 0, 0.6));
+    });
+    const hot = label([['AIRE CALIENTE',8,'#d9541e',30,10,800,'center']], 60, 13); hot.rotation.y = Math.PI/2; hot.position.set(L/2 + 18.6, 100, -38); vG.add(hot);
+    const t = Math.atan2(92, 90);
+    const slant = new THREE.Group(); slant.position.set(0, 103.8, 46); slant.rotation.x = t; shellG.add(slant);
+    const scr = d.part('pantalla','Pantalla 7" VIEWE','cara plana a 45° · confirmar','#0b2545', slant); scr.add(displayModule(198, 118));
+    const pbG = new THREE.Group(); pbG.rotation.x = 0; slant.add(pbG);
+    add(pbG, C(7, 3, 32), M(0x1b2230), 112, 1.5, -10); add(pbG, C(4.5, 1, 32), accent, 112, 3.2, -10);
+    const led = add(pbG, B(3, 1.2, 22), new THREE.MeshBasicMaterial({color:0x3fc69a}), 112, 1.2, 22); ledMats.push(led.material);
+    const br = brand(shellG); br.rotation.x = -Math.PI/2; br.position.set(0, 154.3, -52);
+    const hG = d.part('manija','Correa de hombro','cinta con almohadilla','#1e6fd9', root);
+    [-1,1].forEach(s => { add(hG, B(10, 26, 18), padMat, s*(L/2 + 20), 128, -40); });
+    arc(hG, [[-(L/2+20),138,-40],[-(L/2+12),205,-40],[-60,240,-40],[60,240,-40],[(L/2+12),205,-40],[(L/2+20),138,-40]], 4.5, rubber);
+    add(hG, B(110, 8, 36), accent, 0, 242, -40);
+    const cG = d.part('conectores','Conectores','bornes L/N al frente · IEC atrás','#0e8a63', shellG);
+    sockets(cG, -100, 34, 95); iec(cG, 60, 70, -95.5 - 2, Math.PI);
+    const inner = new THREE.Group(); root.add(inner);
+    const dv = d.part('lamina','Lámina separadora','aluminio 1 mm','#9aa6b6', inner); add(dv, B(L-20, 110, 1.5), metal, 0, 62, 0);
+    const hz = d.part('resistencia','Resistencia de carga 1 kW','a lo largo, atrás','#d9541e', inner); const h = heater(); h.position.set(-111, 57, -38); hz.add(h);
+    [-70, 60].forEach(x => add(hz, B(10, 30, 34), metal, x, 18, -38));
+    const pc = d.part('placa','Placa de medición','al frente, bajo la pantalla','#1e6fd9', inner); const p = pcb(); p.position.set(-55, 20, 32); pc.add(p);
+    const ps = d.part('fuente','Fuente 5 V pantalla','HLK-10M05 · confirmar','#556070', inner); const q = psu(); q.position.set(62, 15, 40); ps.add(q);
+    d.interior = ['resistencia','lamina','placa','fuente'];
+    d.arrow([-L/2-72, 57, -38], X, false); d.arrow([L/2+26, 57, -38], X, true);
+    d.views = { iso:[470,360,520], front:[0,200,720], side:[740,150,0], back:[-360,320,-520] };
+    d.explode = ex => { shellG.position.y = ex*110; capG.children.forEach((g, i) => { if (g.isGroup && i < 2) g.position.x = (i ? 1 : -1)*(L/2 + 4 + ex*50); }); hG.position.y = ex*150; };
+  })();
+
+  // ======================= Estado e interfaz =======================
+  let cur = null, selected = null, xray = false, actionOn = false, ex = 0, camGoal = null;
+  const legendEl = document.getElementById('legend');
+  const bX = document.getElementById('b-xray'), bE = document.getElementById('b-explode'), bSpin = document.getElementById('b-spin');
+  const vb = { iso:'b-iso', front:'b-front', side:'b-side', back:'b-back' };
+
+  function setXray(on){ xray = on; bX.setAttribute('aria-pressed', on); [shellMat, deckMat].forEach(m => { const use = on && cur.xray.includes(m); m.opacity = use ? .14 : 1; m.depthWrite = !use; }); }
+  function setSpin(on){ controls.autoRotate = on; bSpin.setAttribute('aria-pressed', on); }
+  function setView(v, instant){ camGoal = new THREE.Vector3(...cur.views[v]); if (instant) { camera.position.copy(camGoal); camGoal = null; } Object.entries(vb).forEach(([k,id]) => document.getElementById(id).setAttribute('aria-pressed', k === v)); }
+
+  function select(k, btn){
+    selected = k;
+    legendEl.querySelectorAll('button').forEach(x => x.classList.toggle('on', !!k && x === btn));
+    if (k && cur.interior.includes(k) && !xray) setXray(true);
+    Object.values(designs).forEach(d => Object.entries(d.groups).forEach(([gk, g]) => g.traverse(o => {
+      if (!o.isMesh) return;
+      if (o.userData.m0) { o.material = o.userData.m0; o.userData.m0 = null; }
+      if (d === cur && gk === k && o.material.emissive) { o.userData.m0 = o.material; o.material = o.material.clone(); o.material.emissive.setHex(0x1e6fd9); o.material.emissiveIntensity = .45; }
+    })));
+  }
+  function buildLegend(){
+    legendEl.innerHTML = '';
+    cur.legend.forEach(dd => {
+      const b = document.createElement('button');
+      b.innerHTML = '<i class="sw"></i><b></b><span class="m"></span>';
+      b.querySelector('.sw').style.background = dd.color; b.querySelector('b').textContent = dd.name; b.querySelector('.m').textContent = dd.meta;
+      b.addEventListener('click', () => select(selected === dd.key ? null : dd.key, b));
+      legendEl.appendChild(b);
+    });
+  }
+  function setDesign(k){
+    if (cur) cur.root.visible = false;
+    cur = designs[k]; cur.root.visible = true;
+    select(null); actionOn = false; bE.setAttribute('aria-pressed', false); bE.textContent = INFO[k].action;
+    ex = cur.explodeGoal ? cur.explodeGoal() : 0; cur.explode(ex);
+    setXray(false); buildLegend(); renderInfo(k);
+    controls.target.copy(cur.target); setView('iso', true);
+    document.querySelectorAll('.designs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.d === k));
+    document.getElementById('handles').hidden = k !== 'cuna';
+    try { localStorage.setItem('verimed-caja-diseno', k); } catch(e) {}
+  }
+  document.querySelectorAll('.designs button').forEach(b => b.addEventListener('click', () => setDesign(b.dataset.d)));
+  const HNOTE = {
+    arco: 'Arco fijo sobre el compartimento de la carga. Simple y firme, pero sobresale 32 mm y estorba al guardar el equipo.',
+    abatible: 'Estribo en U que gira en los costados, como en los instrumentos de medición portátiles. Se pliega atrás para guardar o se baja bajo el equipo para usarlo de atril y levantar la pantalla.',
+    integrada: 'Puente trasero que forma parte del mismo cuerpo, con un hueco de 26 mm para los dedos. Nada se mueve ni se suelta; se imprime junto con la cubierta.',
+    correa: 'Correa de hombro con anclajes en los costados. Deja las manos libres para subir escaleras o abrir la caja del medidor; se puede quitar.'
+  };
+  function setHandle(k){
+    designs.cuna.setHandle(k);
+    document.querySelectorAll('.handles button').forEach(b => b.setAttribute('aria-pressed', b.dataset.h === k));
+    document.getElementById('handle-note').textContent = HNOTE[k];
+    try { localStorage.setItem('verimed-caja-manija', k); } catch(e) {}
+  }
+  document.querySelectorAll('.handles button').forEach(b => b.addEventListener('click', () => { if (cur.k !== 'cuna') setDesign('cuna'); setHandle(b.dataset.h); }));
+  let h0 = 'correa'; try { h0 = localStorage.getItem('verimed-caja-manija') || 'correa'; } catch(e) {}
+  setHandle(HNOTE[h0] ? h0 : 'correa');
+  Object.keys(vb).forEach(k => document.getElementById(vb[k]).addEventListener('click', () => { setView(k); setSpin(false); }));
+  bSpin.addEventListener('click', () => setSpin(!controls.autoRotate));
+  bX.addEventListener('click', () => setXray(!xray));
+  bE.addEventListener('click', () => { actionOn = !actionOn; cur.actionOn = actionOn; bE.setAttribute('aria-pressed', actionOn); });
+  renderer.domElement.addEventListener('pointerdown', () => { camGoal = null; });
+
+  // Colores
+  const palettes = [
+    {name:'Blanco ártico',    shell:0xeef1f5, pad:0xd5dbe3, rubber:0x2a2f38, accent:0x1e6fd9, fin:0xdfe4ea, text:'#0b2545', hl:'#1e6fd9'},
+    {name:'Azul VeriMed',     shell:0x163a6b, pad:0x0f2a50, rubber:0x1b2230, accent:0x3fc69a, fin:0x2a4f82, text:'#ffffff', hl:'#3fc69a'},
+    {name:'Grafito y naranja',shell:0x3b414b, pad:0x2c3139, rubber:0x1c1f24, accent:0xf28c28, fin:0x4c535e, text:'#ffffff', hl:'#f28c28'},
+    {name:'Verde técnico',    shell:0xdfe8e3, pad:0xc4d2ca, rubber:0x24302b, accent:0x0e8a63, fin:0xcfdcd5, text:'#24302b', hl:'#0e8a63'},
+    {name:'Rojo seguridad',   shell:0xc8343a, pad:0xa82a30, rubber:0x22262e, accent:0xf2f4f7, fin:0xd9575c, text:'#ffffff', hl:'#ffffff'},
+    {name:'Negro mate',       shell:0x1f232a, pad:0x15181d, rubber:0x0f1114, accent:0x2f8cff, fin:0x2c323b, text:'#ffffff', hl:'#2f8cff', rough:.75},
+    {name:'Aluminio',         shell:0xb9c1cb, pad:0x9aa3ae, rubber:0x262a31, accent:0x1e6fd9, fin:0xa7b0bb, text:'#1b2230', hl:'#1e6fd9', metal:.65, rough:.32},
+    {name:'Petróleo y lima',  shell:0x0f4c5c, pad:0x0b3a47, rubber:0x16242a, accent:0xb8e04a, fin:0x1d6274, text:'#ffffff', hl:'#b8e04a'}
+  ];
+  const swBox = document.querySelector('.swatches'), palName = document.getElementById('pal-name');
+  function applyPalette(i){
+    const p = palettes[i];
+    if (cur) select(null);
+    shellMat.color.setHex(p.shell); handleMat.color.setHex(p.shell); padMat.color.setHex(p.pad);
+    [shellMat, handleMat].forEach(m => { m.metalness = p.metal || .05; m.roughness = p.rough || .42; });
+    rubber.color.setHex(p.rubber); accent.color.setHex(p.accent); ventFin.color.setHex(p.fin);
+    brands.forEach(b => { const nb = label([['VeriMed',13,p.text,2,14,800],['BT',13,p.hl,63,14,800]], 84, 18); b.material.map.dispose(); b.material.map = nb.material.map; b.material.needsUpdate = true; });
+    palName.textContent = p.name;
+    swBox.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-pressed', j === i));
+    try { localStorage.setItem('verimed-caja-color', i); } catch(e) {}
+  }
+  palettes.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.style.background = 'linear-gradient(135deg,#' + p.shell.toString(16).padStart(6,'0') + ' 55%,#' + p.accent.toString(16).padStart(6,'0') + ' 55%)';
+    b.setAttribute('aria-label', p.name); b.title = p.name;
+    b.addEventListener('click', () => applyPalette(i));
+    swBox.appendChild(b);
+  });
+
+  let pal0 = 0, des0 = 'cuna';
+  try { pal0 = +localStorage.getItem('verimed-caja-color') || 0; des0 = localStorage.getItem('verimed-caja-diseno') || 'cuna'; } catch(e) {}
+  applyPalette(pal0 < palettes.length ? pal0 : 0);
+  setDesign(designs[des0] ? des0 : 'cuna');
+
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) setSpin(false);
+  function resize(){ const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+  new ResizeObserver(resize).observe(host); resize();
+
+  let t = 0;
+  (function loop(){
+    requestAnimationFrame(loop);
+    const goal = cur.explodeGoal ? cur.explodeGoal() : (actionOn ? 1 : 0);
+    ex += reduce ? goal - ex : (goal - ex) * .1;
+    cur.explode(ex);
+    if (camGoal){ camera.position.lerp(camGoal, reduce ? 1 : .1); if (camera.position.distanceTo(camGoal) < 1) camGoal = null; }
+    t += reduce ? 0 : .016;
+    cur.arrows.forEach(({a, pos, dir, follow}) => { a.position.copy(pos).addScaledVector(dir, t*28 % 26); if (follow) a.position.y += follow.position.y; });
+    ledMats.forEach(m => m.color.setHSL(.44, .55, .45 + .1 * Math.sin(t * 3)));
+    controls.update(); renderer.render(scene, camera);
+  })();
+})();
+</script>

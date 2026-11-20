@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ import 'package:crypto/crypto.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'verimed_ble.dart';
 import 'verimed_captura.dart';
+import 'verimed_ui.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,7 +36,7 @@ const Color vmNavy = Color(0xFF0B2545);
 const Color vmBlue = Color(0xFF1E6FD9);
 const Color vmInk = Color(0xFF0B2545);
 const Color vmMuted = Color(0xFF6B7788);
-const Color vmBackground = Color(0xFFEEF3F8);
+const Color vmBackground = Color(0xFFF3F6FB);
 const Color vmGreen = Color(0xFF12B886);
 const Color vmYellow = Color(0xFFFFC233);
 const Color vmRed = Color(0xFFE5484D);
@@ -60,6 +63,8 @@ class VeriMedApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: vmBackground,
+        // Tipografía moderna (Inter Tight); si no hay internet usa la del sistema.
+        textTheme: GoogleFonts.interTightTextTheme(),
         colorScheme: ColorScheme.fromSeed(
           seedColor: vmNavy,
           primary: vmNavy,
@@ -116,10 +121,19 @@ class VeriMedApp extends StatelessWidget {
           surfaceTintColor: vmNavy,
         ),
         navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: vmNavy,
-          indicatorColor: vmBlue,
-          iconTheme: const WidgetStatePropertyAll(IconThemeData(color: Colors.white)),
-          labelTextStyle: const WidgetStatePropertyAll(TextStyle(color: Colors.white, fontSize: 11)),
+          backgroundColor: Colors.white,
+          indicatorColor: VmColors.blueSoft,
+          surfaceTintColor: Colors.white,
+          iconTheme: WidgetStateProperty.resolveWith(
+            (s) => IconThemeData(color: s.contains(WidgetState.selected) ? VmColors.blue : VmColors.muted),
+          ),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (s) => TextStyle(
+              fontSize: 11,
+              color: s.contains(WidgetState.selected) ? VmColors.blue : VmColors.muted,
+              fontWeight: s.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
@@ -456,7 +470,7 @@ class VeriMedHome extends StatefulWidget {
   State<VeriMedHome> createState() => _VeriMedHomeState();
 }
 
-class _VeriMedHomeState extends State<VeriMedHome> {
+class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
   int _selectedTab = 0;
   // Conexión real con el equipo VeriMed BT (ESP32) por Bluetooth LE.
   final VeriMedBle _ble = VeriMedBle();
@@ -479,6 +493,22 @@ class _VeriMedHomeState extends State<VeriMedHome> {
   final TextEditingController _meterSerial = TextEditingController();
   final TextEditingController _kc = TextEditingController(text: '1000');
   final TextEditingController _pulseCount = TextEditingController(text: '6');
+  // Duración del ensayo: 15/30/60 s (el equipo calcula los pulsos) o 0 = pulsos manuales.
+  int _tiempoObjetivo = 15;
+
+  // Conteo manual: el técnico cuenta los pulsos del LED y mide el tiempo con el cronómetro.
+  //   Tiempo esperado  t_esp = N × 3.600.000 / (Kc × P)
+  //   Error (%)        = (t_esp / t_medido − 1) × 100   (equivale a (Emed − Eref) / Eref)
+  final TextEditingController _pulsosContados = TextEditingController();
+  final TextEditingController _segundosMedidos = TextEditingController();
+  final TextEditingController _potenciaManual = TextEditingController();
+  bool _conteoManual = false; // el último ensayo guardado fue por conteo manual
+  Timer? _cronometro;
+  DateTime? _cronoInicio;
+  double _cronoSegundos = 0;
+  double _cronoSumaP = 0;
+  int _cronoMuestrasP = 0;
+  double? _cronoPotenciaMedia; // potencia media del equipo durante el cronómetro
   final TextEditingController _technician = TextEditingController();
   final TextEditingController _reportEmail = TextEditingController();
   bool _sendingReport = false;
@@ -494,6 +524,21 @@ class _VeriMedHomeState extends State<VeriMedHome> {
   static const double _demoDurationSeconds = 0;
 
   double? get _kcValue => double.tryParse(_kc.text.trim().replaceAll(',', '.'));
+
+  // Mismo cálculo que el firmware: Tp = 3.600.000 / (Kc · P);  N = piso(t / Tp), mínimo 3.
+  // Ej.: Kc 1600 y 1000 W -> 1 pulso cada 2,25 s -> 15 s = 6 pulsos.
+  static const int _pulsosMinimos = 3;
+  double? _segPorPulso(double potencia) {
+    final kc = _kcValue;
+    if (kc == null || kc <= 0 || potencia < 5) return null;
+    return 3600000.0 / (kc * potencia);
+  }
+  int? _pulsosCalculados(double potencia) {
+    final tp = _segPorPulso(potencia);
+    if (tp == null || _tiempoObjetivo <= 0) return null;
+    return math.max(_pulsosMinimos, (_tiempoObjetivo / tp).floor()).clamp(_pulsosMinimos, 500).toInt();
+  }
+  String _unDecimal(double v) => v.toStringAsFixed(1).replaceAll('.', ',');
   int? get _pulseValue => int.tryParse(_pulseCount.text.trim());
   // Energía de referencia = energía integrada por el ESP32 durante el ensayo.
   double get _referenceEnergyWh => _medidoWh ?? 0;
@@ -602,6 +647,61 @@ class _VeriMedHomeState extends State<VeriMedHome> {
     _ble.alPerderConexion = _alPerderConexion;
     _ble.addListener(_onBle);
     _ble.iniciar();
+    WidgetsBinding.instance.addObserver(this);
+    // Pide el permiso de ubicación al abrir la app (después del de Bluetooth),
+    // así queda habilitado antes de tomar la primera foto del ensayo.
+    Future<void>.delayed(const Duration(seconds: 4), _revisarUbicacion);
+  }
+
+  bool _ubicacionPendiente = false;
+  Future<void> _revisarUbicacion() async {
+    if (!mounted) return;
+    // El permiso se pide junto con el de Bluetooth (verimed_ble.dart); aquí solo se revisa.
+    final pendiente = await ubicacionPendiente();
+    if (mounted) setState(() => _ubicacionPendiente = pendiente);
+  }
+
+  /// Aviso para activar la ubicación (permiso o GPS apagado).
+  Widget _avisoUbicacion() {
+    if (!_ubicacionPendiente) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: vmYellow.withOpacity(.16),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: vmYellow.withOpacity(.7)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_off_outlined, color: Color(0xFFB7791F)),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text('Activa la ubicación para registrar dónde se hace el ensayo.',
+                style: TextStyle(color: Color(0xFFB7791F), fontWeight: FontWeight.w600, fontSize: 13)),
+          ),
+          TextButton(
+            onPressed: () async {
+              await abrirAjustesUbicacion(permisoBloqueado: false);
+              await Future<void>.delayed(const Duration(milliseconds: 600));
+              final pendiente = await ubicacionPendiente();
+              if (mounted) setState(() => _ubicacionPendiente = pendiente);
+            },
+            child: const Text('Activar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Al volver de Ajustes se revisa de nuevo si quedó activada.
+    if (state == AppLifecycleState.resumed) {
+      ubicacionPendiente().then((p) {
+        if (mounted) setState(() => _ubicacionPendiente = p);
+      });
+    }
   }
 
   // Se ejecuta cada vez que cambia algo del Bluetooth o llega una lectura.
@@ -641,8 +741,12 @@ class _VeriMedHomeState extends State<VeriMedHome> {
       }
     }
     _equipoMidiendoAntes = equipoMidiendo;
+    final pul = lectura?.pulsos ?? 0;
+    if (_testRunning && pul > _pulsosVistos) HapticFeedback.selectionClick();
+    _pulsosVistos = pul;
     setState(() {});
   }
+  int _pulsosVistos = 0;
 
   void _alPerderConexion() {
     if (!mounted) return;
@@ -715,8 +819,13 @@ class _VeriMedHomeState extends State<VeriMedHome> {
     _meterSerial.dispose();
     _kc.dispose();
     _pulseCount.dispose();
+    _pulsosContados.dispose();
+    _segundosMedidos.dispose();
+    _potenciaManual.dispose();
+    _cronometro?.cancel();
     _technician.dispose();
     _reportEmail.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     _ble.removeListener(_onBle);
     _ble.dispose();
     super.dispose();
@@ -790,15 +899,23 @@ class _VeriMedHomeState extends State<VeriMedHome> {
       return;
     }
     final kc = (_kcValue ?? 0).round();
-    final np = _pulseValue ?? 0;
-    if (kc <= 0 || np <= 0) {
+    final npManual = _pulseValue ?? 0;
+    final automatico = _tiempoObjetivo > 0;
+    if (kc <= 0 || (!automatico && npManual <= 0)) {
       _showMessage('Revisa la constante Kc y el número de pulsos antes de iniciar.');
       return;
     }
+    final np = npManual > 0 ? npManual : 10;
     _sinSyncHasta = DateTime.now().add(const Duration(seconds: 2));
     try {
-      // El equipo recibe Kc, N pulsos y clase, y se detiene solo al completar N pulsos.
-      await _ble.enviarConfiguracion(kc: kc, pulsos: np, clase: _accuracyClass == 'Clase 1' ? 1 : 2);
+      // El equipo recibe Kc, la duración (o N pulsos fijos) y la clase; en modo automático
+      // calcula N con la potencia medida y se detiene solo al completar N pulsos.
+      await _ble.enviarConfiguracion(
+        kc: kc,
+        pulsos: np,
+        clase: _accuracyClass == 'Clase 1' ? 1 : 2,
+        tiempo: automatico ? _tiempoObjetivo : 0,
+      );
       await _ble.enviarComando('INICIAR');
       if (!mounted) return;
       setState(() {
@@ -856,6 +973,7 @@ class _VeriMedHomeState extends State<VeriMedHome> {
     _medidoSegundos = l.segundos;
     _medicionSimulada = l.simulada || l.pulsosSimulados;
     _pulsosAutomaticos = !l.pulsosSimulados;
+    _conteoManual = false;
     final now = DateTime.now();
     final error = _calculatedErrorPct;
     final record = <String, dynamic>{
@@ -906,7 +1024,10 @@ class _VeriMedHomeState extends State<VeriMedHome> {
       final captura = await tomarFotoConUbicacion();
       if (!mounted) return;
       if (captura != null) {
-        setState(() => _captura = captura);
+        setState(() {
+          _captura = captura;
+          _ubicacionPendiente = !captura.tieneUbicacion;
+        });
         _showMessage(captura.tieneUbicacion
             ? 'Foto guardada con la ubicación del ensayo.'
             : 'Foto guardada sin ubicación: ${captura.avisoUbicacion ?? ''}');
@@ -924,6 +1045,7 @@ class _VeriMedHomeState extends State<VeriMedHome> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _avisoUbicacion(),
           const Row(
             children: [
               Icon(Icons.photo_camera_outlined, color: vmBlue),
@@ -994,6 +1116,62 @@ class _VeriMedHomeState extends State<VeriMedHome> {
   }
 
   /// Aviso rojo cuando el equipo informa una alarma eléctrica.
+  /// Pulsos y duración que calculará el equipo con la carga conectada.
+  Widget _resumenPulsosAutomaticos() {
+    final l = _connected ? _ble.lectura : null;
+    final potencia = l?.potencia ?? 0;
+    final tp = _segPorPulso(potencia);
+    final n = _pulsosCalculados(potencia);
+    String texto;
+    if (l == null) {
+      texto = 'El equipo calcula los pulsos con la Kc y la potencia de la carga. Conecta el equipo para ver el cálculo.';
+    } else if (tp == null || n == null) {
+      texto = 'Conecta la carga de ensayo: sin potencia no se pueden calcular los pulsos.';
+    } else {
+      texto = 'Con la carga actual (${potencia.toStringAsFixed(0)} W) el medidor da 1 pulso cada ${_unDecimal(tp)} s: '
+          'el ensayo será de $n pulsos, unos ${(n * tp).round()} s.';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: vmBlue.withOpacity(.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: vmBlue.withOpacity(.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.timer_outlined, color: vmBlue, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(texto, style: const TextStyle(fontSize: 13, color: vmInk))),
+        ],
+      ),
+    );
+  }
+
+  Widget _bannerAviso() {
+    final aviso = _connected ? _ble.lectura?.textoAviso : null;
+    if (aviso == null) return const SizedBox.shrink();
+    const ambar = Color(0xFFB7791F);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: vmYellow.withOpacity(.16),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: vmYellow.withOpacity(.7)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded, color: ambar),
+          const SizedBox(width: 10),
+          Expanded(child: Text(aviso, style: const TextStyle(color: ambar, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+  }
+
   Widget _bannerAlarma() {
     final alarma = _connected ? _ble.lectura?.textoAlarma : null;
     if (alarma == null) return const SizedBox.shrink();
@@ -1255,16 +1433,17 @@ class _VeriMedHomeState extends State<VeriMedHome> {
         ],
       ),
       body: SafeArea(
-        child: IndexedStack(index: _selectedTab, children: pages),
+        child: VmFadeIndexedStack(index: _selectedTab, children: pages),
       ),
       bottomNavigationBar: NavigationBar(
         height: 68,
         selectedIndex: _selectedTab,
         onDestinationSelected: (index) {
+          if (index != _selectedTab) HapticFeedback.selectionClick();
           setState(() => _selectedTab = index);
         },
-        backgroundColor: vmNavy,
-        indicatorColor: vmBlue,
+        backgroundColor: Colors.white,
+        indicatorColor: VmColors.blueSoft,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -1297,137 +1476,298 @@ class _VeriMedHomeState extends State<VeriMedHome> {
   }
 
   Widget _buildHome() {
+    final l = _connected ? _ble.lectura : null;
+    final potencia = l?.potencia ?? 0;
+    final tp = _segPorPulso(potencia);
+    final nAuto = _pulsosCalculados(potencia);
+    final kcTexto = _kc.text.trim().isEmpty ? '—' : _kc.text.trim();
+    final subtituloEnsayo = !_connected
+        ? 'Conecta el equipo para comenzar'
+        : (_tiempoObjetivo > 0 && nAuto != null && tp != null)
+            ? '$nAuto pulsos · ~${vmComa(nAuto * tp, 1)} s con la carga actual'
+            : 'Kc $kcTexto · ${_accuracyClass.toLowerCase()}';
+
+    // Ensayos de los últimos 7 días
+    final hoy = DateTime.now();
+    final dias = List<DateTime>.generate(7, (i) => DateTime(hoy.year, hoy.month, hoy.day).subtract(Duration(days: 6 - i)));
+    const letras = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    final conteo = List<int>.filled(7, 0);
+    var aprobados = 0, rechazados = 0;
+    for (final r in _testHistory) {
+      final d = r['date'];
+      if (d is! DateTime) continue;
+      final idx = dias.indexWhere((x) => x.year == d.year && x.month == d.month && x.day == d.day);
+      if (idx < 0) continue;
+      conteo[idx]++;
+      final e = (r['errorPct'] as num?)?.toDouble();
+      final lim = '${r['class']}' == 'Clase 2' ? 2.0 : 1.0;
+      if (e != null && e.abs() <= lim) {
+        aprobados++;
+      } else {
+        rechazados++;
+      }
+    }
+    final semana = conteo.fold<int>(0, (a, b) => a + b);
+    final ultimo = _testHistory.isEmpty ? null : _testHistory.first;
+    final ultimoError = (ultimo?['errorPct'] as num?)?.toDouble();
+    final ultimoAprobado = ultimoError != null && ultimoError.abs() <= ('${ultimo?['class']}' == 'Clase 2' ? 2.0 : 1.0);
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: EdgeInsets.zero,
       children: [
-        const _SectionHeading(
-          title: 'Panel principal',
-          subtitle: 'Verificación monofásica',
-        ),
-        const SizedBox(height: 14),
-        _Panel(
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: vmBlue.withOpacity(0.09),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: const Icon(
-                  Icons.memory_rounded,
-                  color: vmBlue,
-                  size: 29,
-                ),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        // ---- Cabecera azul con la potencia en vivo ----
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 66),
+          decoration: const BoxDecoration(
+            color: vmNavy,
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
+          ),
+          child: VmEntrance(
+            offsetY: 10,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    const Text(
-                      'Estado del equipo',
-                      style: TextStyle(color: vmMuted, fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: _connected ? vmGreen : vmMuted,
-                            shape: BoxShape.circle,
+                    AnimatedContainer(
+                      duration: vmDur(context, 300),
+                      padding: const EdgeInsets.fromLTRB(4, 2, 12, 2),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.10), borderRadius: BorderRadius.circular(999)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          VmLiveDot(activo: _connected, color: _connected ? VmColors.greenBright : VmColors.onNavyMuted),
+                          Text(
+                            _connected ? 'Conectado' : 'Sin equipo',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12.5),
                           ),
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          _connected ? 'Conectado' : 'Desconectado',
-                          style: TextStyle(
-                            color: _connected ? vmGreen : vmInk,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _connected
-                          ? '${_ble.nombreConectado}${(_ble.lectura?.simulada ?? false) ? ' • datos simulados' : ''}'
-                          : 'Toca Conexión para buscar el equipo',
-                      style: const TextStyle(color: vmMuted, fontSize: 12),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _connected ? _ble.nombreConectado : 'Toca para buscar el equipo',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: VmColors.onNavyMuted, fontSize: 12.5),
+                      ),
+                    ),
+                    if (!_connected)
+                      TextButton(
+                        onPressed: () => setState(() => _selectedTab = 1),
+                        style: TextButton.styleFrom(foregroundColor: Colors.white),
+                        child: const Text('Conectar'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text('Potencia en la carga de ensayo', style: TextStyle(color: VmColors.onNavyMuted, fontSize: 13)),
+                const SizedBox(height: 4),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    l == null
+                        ? Text('—', style: vmNumero(60, color: Colors.white))
+                        : VmAnimatedNumber(value: potencia, format: (v) => vmMiles(v), style: vmNumero(60, color: Colors.white)),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6, bottom: 6),
+                      child: Text('W', style: vmNumero(26, color: VmColors.onNavyMuted, weight: FontWeight.w700)),
                     ),
                   ],
                 ),
-              ),
-              Icon(
-                _connected
-                    ? Icons.bluetooth_connected_rounded
-                    : Icons.bluetooth_disabled_rounded,
-                color: _connected ? vmBlue : vmMuted,
-                size: 25,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Builder(builder: (context) {
-          final l = _connected ? _ble.lectura : null;
-          return Row(
-            children: [
-              Expanded(child: _MetricCard(icon: Icons.speed_rounded, value: l == null ? '— V' : '${l.tension.toStringAsFixed(1)} V', label: 'Tensión')),
-              const SizedBox(width: 10),
-              Expanded(child: _MetricCard(icon: Icons.bolt_rounded, value: l == null ? '— A' : '${l.corriente.toStringAsFixed(2)} A', label: 'Corriente')),
-              const SizedBox(width: 10),
-              Expanded(child: _MetricCard(icon: Icons.flash_on_rounded, value: l == null ? '— W' : '${l.potencia.toStringAsFixed(0)} W', label: 'Potencia')),
-            ],
-          );
-        }),
-        const SizedBox(height: 6),
-        Text(
-          !_connected
-              ? 'Conecta el equipo VeriMed BT para ver las mediciones en vivo.'
-              : (_ble.lectura?.simulada ?? true)
-                  ? 'Valores en vivo del ESP32 · el equipo indica DATOS SIMULADOS (aún sin sensor).'
-                  : 'Valores en vivo del equipo VeriMed BT · FP ${_ble.lectura!.factorPotencia.toStringAsFixed(2)}',
-          style: const TextStyle(color: vmMuted, fontSize: 11),
-        ),
-        const SizedBox(height: 14),
-        _bannerAlarma(),
-        FilledButton.icon(
-          onPressed: _startTest,
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Nuevo ensayo'),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(52),
-            backgroundColor: vmBlue,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(13),
+                const SizedBox(height: 8),
+                AnimatedSwitcher(
+                  duration: vmDur(context, 250),
+                  child: Text(
+                    l == null
+                        ? 'Conecta el equipo para ver las mediciones en vivo'
+                        : '${l.tension > 0 ? '${vmComa(l.tension, 1)} V' : '— V'} · ${l.tension > 0 ? '${vmComa(l.corriente, 2)} A' : '— A'}'
+                          '${l.factorPotencia > 0 ? ' · FP ${vmComa(l.factorPotencia, 2)}' : ''}'
+                          '${l.frecuencia > 0 ? ' · ${vmComa(l.frecuencia, 1)} Hz' : ''}${l.simulada ? ' · simulado' : ''}',
+                    key: ValueKey(l == null),
+                    style: const TextStyle(color: VmColors.onNavyMuted, fontSize: 13),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(height: 18),
-        _SectionHeading(title: 'Último ensayo', subtitle: _testHistory.isEmpty ? 'Aún no hay registros' : 'Último registro guardado'),
-        const SizedBox(height: 10),
-        _Panel(
-          child: Column(
-            children: [
-              _DataRow(label: 'Fecha', value: _testHistory.isEmpty ? (_historyLoaded ? 'Sin ensayos guardados' : 'Cargando historial…') : _formatRecordDate(_testHistory.first['date'])),
-              const Divider(height: 18, color: vmBorder),
-              _DataRow(label: 'Error porcentual', value: _testHistory.isEmpty || _testHistory.first['errorPct'] == null ? '—' : '${(_testHistory.first['errorPct'] as num).toDouble().toStringAsFixed(2)} %'),
-              const Divider(height: 18, color: vmBorder),
-              _DataRow(label: 'Veredicto', value: _testHistory.isEmpty ? '—' : '${_testHistory.first['verdict']}'),
-              const Divider(height: 18, color: vmBorder),
-              _DataRow(label: 'Modo', value: _testHistory.isEmpty ? '—' : '${_testHistory.first['mode']}'),
-            ],
+
+        // ---- Contenido que se monta sobre la cabecera ----
+        Transform.translate(
+          offset: const Offset(0, -44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                VmEntrance(
+                  delay: vmStagger(1),
+                  child: VmPressable(
+                    onTap: _startTest,
+                    semanticLabel: 'Iniciar ensayo',
+                    child: VmCard(
+                      sombra: true,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(color: vmBlue, borderRadius: BorderRadius.circular(17)),
+                            child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 30),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Iniciar ensayo', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: vmInk)),
+                                const SizedBox(height: 2),
+                                AnimatedSwitcher(
+                                  duration: vmDur(context, 250),
+                                  child: Text(subtituloEnsayo, key: ValueKey(subtituloEnsayo), style: const TextStyle(fontSize: 13, color: VmColors.muted)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded, color: vmBlue, size: 28),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _bannerAlarma(),
+                VmEntrance(
+                  delay: vmStagger(2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: VmQuickAction(
+                          icon: Icons.qr_code_scanner_rounded,
+                          label: 'Escanear serie',
+                          fondo: VmColors.blueSoft,
+                          color: vmBlue,
+                          onTap: () {
+                            setState(() => _selectedTab = 2);
+                            _escanearSerie();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: VmQuickAction(
+                          icon: Icons.timer_outlined,
+                          label: 'Conteo manual',
+                          fondo: VmColors.amberSoft,
+                          color: VmColors.amberInk,
+                          onTap: () => setState(() => _selectedTab = 2),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: VmQuickAction(
+                          icon: Icons.description_outlined,
+                          label: 'Informes',
+                          fondo: VmColors.greenSoft,
+                          color: VmColors.green,
+                          onTap: () => setState(() => _selectedTab = 3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                VmEntrance(
+                  delay: vmStagger(3),
+                  child: VmCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(child: Text('Últimos 7 días', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: vmInk))),
+                            Text('$semana ensayo${semana == 1 ? '' : 's'}', style: const TextStyle(fontSize: 13, color: VmColors.muted)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        VmWeekBars(valores: conteo, etiquetas: [for (final d in dias) letras[d.weekday - 1]]),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 6,
+                          children: [
+                            _LeyendaPunto(color: VmColors.green, texto: '$aprobados aprobado${aprobados == 1 ? '' : 's'}'),
+                            _LeyendaPunto(color: VmColors.red, texto: '$rechazados rechazado${rechazados == 1 ? '' : 's'}'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                VmEntrance(
+                  delay: vmStagger(4),
+                  child: VmPressable(
+                    onTap: _showHistory,
+                    semanticLabel: 'Ver historial',
+                    child: VmCard(
+                      padding: const EdgeInsets.all(14),
+                      child: ultimo == null
+                          ? Row(
+                              children: [
+                                const Icon(Icons.history_rounded, color: VmColors.muted),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _historyLoaded ? 'Aún no hay ensayos guardados' : 'Cargando historial…',
+                                    style: const TextStyle(color: VmColors.muted),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: ultimoAprobado ? VmColors.greenSoft : VmColors.redSoft,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Icon(
+                                    ultimoAprobado ? Icons.check_rounded : Icons.close_rounded,
+                                    color: ultimoAprobado ? VmColors.green : VmColors.red,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Último ensayo · ${ultimo['serial']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: vmInk)),
+                                      const SizedBox(height: 2),
+                                      Text(_formatRecordDate(ultimo['date']), style: const TextStyle(fontSize: 12, color: VmColors.muted)),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  ultimoError == null ? '—' : '${ultimoError > 0 ? '+' : (ultimoError < 0 ? '−' : '')}${vmComa(ultimoError.abs(), 2)} %',
+                                  style: vmNumero(20, color: ultimoAprobado ? VmColors.green : VmColors.red),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.chevron_right_rounded, color: VmColors.muted),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const _DemoNotice(),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(onPressed: _showHistory, icon: const Icon(Icons.history_rounded), label: const Text('Ver historial y buscar ensayos')),
-        const SizedBox(height: 12),
-        const _DemoNotice(),
       ],
     );
   }
@@ -1488,9 +1828,9 @@ class _VeriMedHomeState extends State<VeriMedHome> {
                 const SizedBox(height: 6),
                 _DataRow(label: 'Potencia activa', value: '${ble.lectura!.potencia.toStringAsFixed(1)} W'),
                 const SizedBox(height: 6),
-                _DataRow(label: 'Factor de potencia', value: ble.lectura!.factorPotencia.toStringAsFixed(2)),
+                _DataRow(label: 'Factor de potencia', value: ble.lectura!.factorPotencia > 0 ? ble.lectura!.factorPotencia.toStringAsFixed(2) : 'No se mide (≈ 1 con carga resistiva)'),
                 const SizedBox(height: 6),
-                _DataRow(label: 'Referencia (V, I, P)', value: ble.lectura!.simulada ? 'Simulada' : 'Medidor PZEM-004T'),
+                _DataRow(label: 'Referencia (V, I, P)', value: ble.lectura!.simulada ? 'Simulada' : 'Placa de medición (2 × AD71056)'),
                 const SizedBox(height: 6),
                 _DataRow(label: 'Pulsos del medidor', value: ble.lectura!.pulsosSimulados ? 'Simulados' : 'Sensor óptico'),
                 if (ble.info != null) ...[
@@ -2113,75 +2453,189 @@ class _VeriMedHomeState extends State<VeriMedHome> {
                 decoration: const InputDecoration(hintText: 'Nombre y apellido'),
               ),
               const SizedBox(height: 13),
-              const _FieldLabel('Número de pulsos del ensayo'),
-              TextField(
-                controller: _pulseCount,
-                onChanged: (_) => setState(() {}),
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(hintText: '6'),
+              const _FieldLabel('Duración del ensayo'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final op in const [(15, '15 s'), (30, '30 s'), (60, '60 s'), (0, 'Manual')])
+                    ChoiceChip(
+                      label: Text(op.$2),
+                      selected: _tiempoObjetivo == op.$1,
+                      onSelected: _testRunning ? null : (_) => setState(() => _tiempoObjetivo = op.$1),
+                    ),
+                ],
               ),
               const SizedBox(height: 10),
-              const Text(
-                'El equipo cuenta los pulsos del LED del medidor y se detiene solo al llegar a este número.',
-                style: TextStyle(color: vmMuted, fontSize: 12),
-              ),
+              if (_tiempoObjetivo == 0) ...[
+                const _FieldLabel('Número de pulsos del ensayo'),
+                TextField(
+                  controller: _pulseCount,
+                  onChanged: (_) => setState(() {}),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(hintText: '6'),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'El equipo cuenta los pulsos del LED del medidor y se detiene solo al llegar a este número.',
+                  style: TextStyle(color: vmMuted, fontSize: 12),
+                ),
+              ] else
+                _resumenPulsosAutomaticos(),
             ],
           ),
         ),
         const SizedBox(height: 14),
         _bannerAlarma(),
+        _bannerAviso(),
         if (_testRunning) ...[
           Builder(builder: (context) {
             final l = _ble.lectura;
             final esperando = l == null || l.estado == EstadoEnsayo.esperandoPulso;
             final objetivo = (l != null && l.pulsosObjetivo > 0) ? l.pulsosObjetivo : (_pulseValue ?? 0);
             final double? progreso = (esperando || objetivo <= 0) ? null : (l!.pulsos / objetivo).clamp(0.0, 1.0).toDouble();
-            return _Panel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+            final tp = l?.segPorPulso ?? 0;
+            final totalS = (objetivo > 0 && tp > 0) ? objetivo * tp : 0.0;
+            final restante = (totalS > 0 && l != null && !esperando) ? math.max(0.0, totalS - l.segundos) : null;
+            final pulsosAhora = esperando ? 0 : (l?.pulsos ?? 0);
+            final kc = _kcValue;
+            Widget dato(String etiqueta, String valor) => Expanded(
+                  child: VmCard(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    radius: 18,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(etiqueta, style: const TextStyle(fontSize: 12, color: VmColors.muted)),
+                        const SizedBox(height: 3),
+                        FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(valor, style: vmNumero(24))),
+                      ],
+                    ),
+                  ),
+                );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                VmStepper(pasos: const ['Configurar', '1er pulso', 'Midiendo', 'Resultado'], actual: esperando ? 1 : 2),
+                const SizedBox(height: 14),
+                VmCard(
+                  sombra: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(Icons.circle, color: esperando ? vmBlue : vmGreen, size: 11),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          esperando ? 'Esperando el primer pulso del medidor…' : 'Pulso ${l!.pulsos} de $objetivo',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    VmLiveDot(color: esperando ? VmColors.blue : VmColors.amber, size: 8),
+                                    Text(esperando ? 'Esperando el 1er pulso' : 'Pulso', style: const TextStyle(fontSize: 13, color: VmColors.muted)),
+                                  ],
+                                ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    AnimatedSwitcher(
+                                      duration: vmDur(context, 450),
+                                      transitionBuilder: (child, anim) => ScaleTransition(
+                                        scale: Tween<double>(begin: 0.5, end: 1).animate(CurvedAnimation(parent: anim, curve: Curves.elasticOut)),
+                                        child: FadeTransition(opacity: anim, child: child),
+                                      ),
+                                      child: Text('$pulsosAhora', key: ValueKey(pulsosAhora), style: vmNumero(78)),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8, left: 4),
+                                      child: Text('de $objetivo', style: vmNumero(28, color: const Color(0xFF93A3B8), weight: FontWeight.w700)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              const Text('Tiempo', style: TextStyle(fontSize: 13, color: VmColors.muted)),
+                              const SizedBox(height: 4),
+                              VmAnimatedNumber(value: l?.segundos ?? 0, format: (v) => '${vmComa(v, 1)} s', style: vmNumero(34), durationMs: 450),
+                              const SizedBox(height: 2),
+                              AnimatedOpacity(
+                                opacity: restante == null ? 0 : 1,
+                                duration: vmDur(context, 300),
+                                child: Text('quedan ~${vmComa(restante ?? 0, 1)} s', style: const TextStyle(fontSize: 12, color: VmColors.muted)),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 14),
+                      VmProgressBar(value: progreso),
+                      if (l != null && (l.simulada || l.pulsosSimulados))
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('Datos simulados por el equipo', style: TextStyle(color: VmColors.muted, fontSize: 11)),
+                        ),
                     ],
                   ),
-                  if (l != null && (l.simulada || l.pulsosSimulados))
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Text('Datos simulados por el equipo', style: TextStyle(color: vmMuted, fontSize: 11)),
-                    ),
-                  const SizedBox(height: 10),
-                  LinearProgressIndicator(value: progreso, minHeight: 7),
-                  const SizedBox(height: 12),
-                  _DataRow(label: 'Tiempo', value: l == null ? '—' : '${l.segundos.toStringAsFixed(1)} s'),
-                  const SizedBox(height: 6),
-                  _DataRow(label: 'Energía de referencia', value: l == null ? '—' : '${l.energiaWh.toStringAsFixed(4)} Wh'),
-                  const SizedBox(height: 6),
-                  _DataRow(label: 'Potencia activa', value: l == null ? '—' : '${l.potencia.toStringAsFixed(1)} W'),
-                  const SizedBox(height: 6),
-                  _DataRow(label: 'Tensión / corriente', value: l == null ? '—' : '${l.tension.toStringAsFixed(1)} V · ${l.corriente.toStringAsFixed(2)} A'),
-                  if (_ble.muestras.length >= 2) ...[
-                    const SizedBox(height: 14),
-                    const Text('Potencia de referencia durante el ensayo (W)', style: TextStyle(color: vmMuted, fontSize: 12, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 8),
-                    SizedBox(height: 140, child: _graficoPotencia()),
+                ),
+                const SizedBox(height: 12),
+                VmCard(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(child: Text('Pulsos del LED', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: vmInk))),
+                          if (tp > 0) Text('esperado: 1 cada ${_unDecimal(tp)} s', style: const TextStyle(fontSize: 12, color: VmColors.muted)),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      VmPulseTimeline(total: objetivo, hechos: pulsosAhora, duracionTexto: totalS > 0 ? '${vmComa(totalS, 1)} s' : ''),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    dato('Potencia', l == null ? '—' : '${vmMiles(l.potencia)} W'),
+                    const SizedBox(width: 10),
+                    dato('Tensión', l == null ? '—' : '${vmComa(l.tension, 1)} V'),
                   ],
-                  const SizedBox(height: 10),
-                  Text(
-                    (l?.pulsosSimulados ?? true)
-                        ? 'Los pulsos del medidor se simulan en el equipo (aún sin sensor óptico).'
-                        : 'El sensor óptico cuenta los pulsos del LED del medidor automáticamente.',
-                    style: const TextStyle(color: vmMuted, fontSize: 12),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    dato('E. referencia', l == null ? '—' : '${vmComa(l.energiaWh, 3)} Wh'),
+                    const SizedBox(width: 10),
+                    dato('E. medidor', (l == null || kc == null || kc <= 0) ? '—' : '${vmComa(pulsosAhora * 1000 / kc, 3)} Wh'),
+                  ],
+                ),
+                if (_ble.muestras.length >= 2) ...[
+                  const SizedBox(height: 12),
+                  VmCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Potencia de referencia durante el ensayo (W)', style: TextStyle(color: VmColors.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        SizedBox(height: 140, child: _graficoPotencia()),
+                      ],
+                    ),
                   ),
                 ],
-              ),
+                const SizedBox(height: 10),
+                Text(
+                  (l?.pulsosSimulados ?? true)
+                      ? 'Los pulsos del medidor se simulan en el equipo (aún sin sensor óptico).'
+                      : 'El sensor óptico cuenta los pulsos del LED del medidor automáticamente.',
+                  style: const TextStyle(color: VmColors.muted, fontSize: 12),
+                ),
+              ],
             );
           }),
           const SizedBox(height: 12),
@@ -2210,9 +2664,268 @@ class _VeriMedHomeState extends State<VeriMedHome> {
               backgroundColor: vmBlue,
             ),
           ),
+        if (!_testRunning) ...[
+          const SizedBox(height: 16),
+          _panelConteoManual(),
+        ],
         const SizedBox(height: 12),
         const _DemoNotice(),
       ],
+    );
+  }
+
+  // ------------------------- Conteo manual -------------------------
+  /// Potencia de referencia: la del equipo si está conectado; si no, la que ingresa el técnico.
+  double? get _potenciaReferenciaManual {
+    if (_cronoPotenciaMedia != null) return _cronoPotenciaMedia;
+    final l = _connected ? _ble.lectura : null;
+    if (l != null && l.potencia >= 5) return l.potencia;
+    return double.tryParse(_potenciaManual.text.trim().replaceAll(',', '.'));
+  }
+
+  /// Pulsos que conviene contar: según la duración elegida (o los pulsos manuales).
+  int? get _pulsosSugeridos {
+    final p = _potenciaReferenciaManual;
+    if (_tiempoObjetivo == 0) return _pulseValue;
+    if (p == null) return null;
+    return _pulsosCalculados(p);
+  }
+
+  /// Error con lo que ingresó el técnico (null si falta un dato).
+  ({double esperado, double error})? get _resultadoManual {
+    final kc = _kcValue;
+    final p = _potenciaReferenciaManual;
+    final n = int.tryParse(_pulsosContados.text.trim());
+    final t = double.tryParse(_segundosMedidos.text.trim().replaceAll(',', '.'));
+    if (kc == null || kc <= 0 || p == null || p < 5 || n == null || n <= 0 || t == null || t <= 0) return null;
+    final esperado = n * 3600000.0 / (kc * p);
+    return (esperado: esperado, error: (esperado / t - 1) * 100);
+  }
+
+  void _cronoAlternar() {
+    if (_cronometro != null) {
+      // Detener en el último pulso
+      _cronometro!.cancel();
+      _cronometro = null;
+      setState(() {
+        _cronoPotenciaMedia = _cronoMuestrasP > 0 ? _cronoSumaP / _cronoMuestrasP : null;
+        _segundosMedidos.text = _cronoSegundos.toStringAsFixed(2);
+      });
+      return;
+    }
+    // Iniciar en el primer pulso
+    final sugeridos = _pulsosSugeridos;
+    if (_pulsosContados.text.trim().isEmpty && sugeridos != null) _pulsosContados.text = '$sugeridos';
+    _cronoInicio = DateTime.now();
+    _cronoSegundos = 0;
+    _cronoSumaP = 0;
+    _cronoMuestrasP = 0;
+    _cronoPotenciaMedia = null;
+    _cronometro = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final l = _connected ? _ble.lectura : null;
+      if (l != null && l.potencia >= 5) {
+        _cronoSumaP += l.potencia;
+        _cronoMuestrasP++;
+      }
+      if (mounted) setState(() => _cronoSegundos = DateTime.now().difference(_cronoInicio!).inMilliseconds / 1000.0);
+    });
+    setState(() {});
+  }
+
+  void _guardarResultadoManual() {
+    final res = _resultadoManual;
+    final p = _potenciaReferenciaManual;
+    if (res == null || p == null) {
+      _showMessage('Completa la Kc, la potencia, los pulsos contados y los segundos medidos.');
+      return;
+    }
+    final n = int.parse(_pulsosContados.text.trim());
+    final t = double.parse(_segundosMedidos.text.trim().replaceAll(',', '.'));
+    final desdeEquipo = _connected && _ble.lectura != null && (_cronoPotenciaMedia != null || _ble.lectura!.potencia >= 5);
+    final simulada = desdeEquipo && (_ble.lectura?.simulada ?? false);
+    _pulseCount.text = '$n';
+    _medidoWh = p * t / 3600.0;
+    _medidoSegundos = t;
+    _medicionSimulada = simulada;
+    _pulsosAutomaticos = false;
+    _conteoManual = true;
+    final error = _calculatedErrorPct;
+    final record = <String, dynamic>{
+      'id': _reportId(),
+      'date': DateTime.now(),
+      'serial': _meterSerial.text.trim().isEmpty ? 'No especificado' : _meterSerial.text.trim(),
+      'model': _selectedMeterModel.isEmpty ? 'No especificado' : _selectedMeterModel,
+      'technician': _technician.text.trim().isEmpty ? 'No especificado' : _technician.text.trim(),
+      'kc': _kcValue,
+      'pulses': n,
+      'referenceWh': _referenceEnergyWh,
+      'meterWh': _meterEnergyWh,
+      'errorPct': error,
+      'class': _accuracyClass,
+      'verdict': _calculatedVerdict,
+      'mode': simulada
+          ? 'MANUAL · CRONÓMETRO · POTENCIA SIMULADA'
+          : (desdeEquipo ? 'MANUAL · CRONÓMETRO · POTENCIA DEL EQUIPO' : 'MANUAL · CRONÓMETRO · POTENCIA INGRESADA'),
+      'durationSeconds': t,
+      'deviceSerial': desdeEquipo ? (_ble.info?.serie ?? 'No informado') : 'Sin equipo',
+      'firmware': desdeEquipo ? (_ble.info?.firmware ?? 'No informado') : '—',
+      ...?_captura?.aRegistro(),
+    };
+    setState(() {
+      _testHistory.insert(0, record);
+      _testFinished = true;
+      _lastTestDurationSeconds = t;
+      _cronoPotenciaMedia = null;
+      _pulsosContados.clear();
+      _segundosMedidos.clear();
+      _selectedTab = 3;
+    });
+    _saveHistory();
+    final txt = error == null ? '' : ' (${error >= 0 ? '+' : ''}${error.toStringAsFixed(2)} %)';
+    _showMessage('Ensayo manual guardado: ${error != null && error.abs() <= _acceptanceLimitPct ? 'dentro del límite' : 'fuera del límite'}$txt.');
+  }
+
+  Widget _panelConteoManual() {
+    final l = _connected ? _ble.lectura : null;
+    final potenciaEquipo = l != null && l.potencia >= 5;
+    final p = _potenciaReferenciaManual;
+    final tp = p == null ? null : _segPorPulso(p);
+    final sugeridos = _pulsosSugeridos;
+    final corriendo = _cronometro != null;
+    final res = _resultadoManual;
+    final limite = _acceptanceLimitPct;
+    return _Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.timer_outlined, color: vmBlue),
+              SizedBox(width: 8),
+              Expanded(child: Text('Conteo manual con cronómetro', style: TextStyle(fontWeight: FontWeight.w700))),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Para verificar sin sensor óptico: cuenta los pulsos del LED del medidor y mide el tiempo.',
+            style: TextStyle(color: vmMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          if (!potenciaEquipo) ...[
+            const _FieldLabel('Potencia de la carga de ensayo'),
+            TextField(
+              controller: _potenciaManual,
+              onChanged: (_) => setState(() {}),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(suffixText: 'W', hintText: '1000'),
+            ),
+            const SizedBox(height: 4),
+            const Text('Sin equipo conectado: usa la potencia medida con una pinza o la de una carga resistiva conocida.',
+                style: TextStyle(color: vmMuted, fontSize: 11)),
+            const SizedBox(height: 10),
+          ],
+          // Lo que debe contar el técnico
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: vmBackground, borderRadius: BorderRadius.circular(12)),
+            child: (p == null || tp == null || sugeridos == null)
+                ? const Text('Ingresa la Kc y la potencia para saber cuántos pulsos contar.', style: TextStyle(color: vmMuted))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Cuenta $sugeridos pulsos', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: vmInk)),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Con ${p.toStringAsFixed(0)} W el medidor debería dar 1 pulso cada ${_unDecimal(tp)} s: '
+                        '$sugeridos pulsos en ${_unDecimal(sugeridos * tp)} s.',
+                        style: const TextStyle(color: vmInk, fontSize: 13),
+                      ),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 12),
+          // Cronómetro
+          Center(
+            child: Text(
+              '${_cronoSegundos.toStringAsFixed(1).replaceAll('.', ',')} s',
+              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: vmInk, fontFeatures: [FontFeature.tabularFigures()]),
+            ),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: _cronoAlternar,
+            icon: Icon(corriendo ? Icons.stop_rounded : Icons.play_arrow_rounded),
+            label: Text(corriendo ? 'Detener en el último pulso' : 'Iniciar en el primer pulso'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              backgroundColor: corriendo ? vmRed : vmBlue,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Toca Iniciar justo cuando parpadea el LED (pulso 0) y Detener cuando parpadea el último pulso.',
+            style: TextStyle(color: vmMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _FieldLabel('Pulsos contados'),
+                    TextField(
+                      controller: _pulsosContados,
+                      onChanged: (_) => setState(() {}),
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(hintText: sugeridos == null ? '6' : '$sugeridos'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _FieldLabel('Segundos medidos'),
+                    TextField(
+                      controller: _segundosMedidos,
+                      onChanged: (_) => setState(() => _cronoPotenciaMedia = null),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(suffixText: 's', hintText: '13,5'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (res != null) ...[
+            const SizedBox(height: 12),
+            _DataRow(label: 'Tiempo esperado', value: '${_unDecimal(res.esperado)} s'),
+            const SizedBox(height: 6),
+            _DataRow(
+              label: 'Error del medidor',
+              value: '${res.error >= 0 ? '+' : ''}${res.error.toStringAsFixed(2)} % · ${res.error.abs() <= limite ? 'dentro' : 'fuera'} de ±${limite.toStringAsFixed(0)} %',
+            ),
+            const SizedBox(height: 4),
+            Text(
+              res.error < 0
+                  ? 'El medidor tardó más de lo esperado: registra menos energía (a favor del cliente).'
+                  : 'El medidor fue más rápido de lo esperado: registra más energía (en contra del cliente).',
+              style: const TextStyle(color: vmMuted, fontSize: 11),
+            ),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: (res == null || corriendo) ? null : _guardarResultadoManual,
+            icon: const Icon(Icons.save_alt_rounded),
+            label: const Text('Guardar ensayo manual'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2255,8 +2968,12 @@ class _VeriMedHomeState extends State<VeriMedHome> {
       ['Fórmula de energía de referencia', 'Eref (Wh) = Pref (W) × t (s) / 3600'],
       ['Fórmula de energía del medidor', 'Emed (Wh) = pulsos × 1000 / Kc (imp/kWh)'],
       ['Fórmula de error', 'Error (%) = (Emed − Eref) / Eref × 100'],
-      ['Método de medición', _medicionSimulada ? 'ESP32 VeriMed BT por Bluetooth (datos simulados en el equipo)' : 'ESP32 VeriMed BT por Bluetooth; energía integrada en el equipo'],
-      ['Conteo de pulsos', _pulsosAutomaticos ? 'Automático (sensor óptico en el LED del medidor)' : 'Simulado en el equipo (sin sensor óptico)'],
+      ['Método de medición', _conteoManual
+          ? 'Conteo manual con cronómetro; Eref = potencia de referencia × tiempo medido'
+          : (_medicionSimulada ? 'ESP32 VeriMed BT por Bluetooth (datos simulados en el equipo)' : 'ESP32 VeriMed BT por Bluetooth; energía integrada en el equipo')],
+      ['Conteo de pulsos', _conteoManual
+          ? 'Manual: el técnico contó los pulsos del LED del medidor'
+          : (_pulsosAutomaticos ? 'Automático (sensor óptico en el LED del medidor)' : 'Simulado en el equipo (sin sensor óptico)')],
       ['Equipo VeriMed BT (serie)', _ble.info?.serie ?? 'No informado'],
       ['Firmware / calibración del equipo', _ble.info == null ? 'No informado' : 'v${_ble.info!.firmware} · calibración: ${_ble.info!.calibracion}'],
       ['Ubicación del ensayo', _captura == null
@@ -2519,123 +3236,85 @@ class _VeriMedHomeState extends State<VeriMedHome> {
     final errorValue = _calculatedErrorPct;
     final valid = errorValue != null && errorValue.isFinite;
     final safeError = errorValue ?? 0.0;
-    final conforms = valid && safeError.abs() <= _acceptanceLimitPct;
-    final statusColor = conforms ? vmGreen : vmRed;
-    final errorText = valid
-        ? '${safeError >= 0 ? '+' : ''}${safeError.toStringAsFixed(2).replaceAll('.', ',')} %'
-        : '—';
+    final limite = _acceptanceLimitPct;
+    final conforms = valid && safeError.abs() <= limite;
+    final clase = _accuracyClass.toUpperCase();
+    String signo(double v) => v > 0.0005 ? '+' : (v < -0.0005 ? '−' : '');
+    final frase = !valid
+        ? 'Faltan datos para calcular el error del medidor.'
+        : safeError < -0.0005
+            ? 'El medidor registró ${vmComa(safeError.abs(), 2)} % menos energía que la referencia (a favor del cliente).'
+            : safeError > 0.0005
+                ? 'El medidor registró ${vmComa(safeError.abs(), 2)} % más energía que la referencia (en contra del cliente).'
+                : 'El medidor registró la misma energía que la referencia.';
+    final margen = !valid
+        ? ''
+        : conforms
+            ? ' Está dentro del margen permitido de ±${vmComa(limite, 0)} %.'
+            : ' Supera el margen permitido de ±${vmComa(limite, 0)} %.';
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-      decoration: BoxDecoration(
-        color: vmBackground,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: vmNavy.withOpacity(0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'ENSAYO · MEDIDOR ${_accuracyClass.toUpperCase()}',
-              style: const TextStyle(
-                color: vmMuted,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.15,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        VmCard(
+          sombra: true,
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Text('ENSAYO · $clase', style: const TextStyle(color: VmColors.muted, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                  const Spacer(),
+                  Text(_formatElapsed(_lastTestDurationSeconds), style: const TextStyle(color: VmColors.muted, fontSize: 13, fontWeight: FontWeight.w600)),
+                ],
               ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _formatElapsed(_lastTestDurationSeconds),
-            style: const TextStyle(
-              color: vmNavy,
-              fontSize: 42,
-              height: 1.1,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -1.2,
-            ),
-          ),
-          const SizedBox(height: 18),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 350),
-            width: 116,
-            height: 116,
-            decoration: BoxDecoration(
-              color: conforms ? vmGreen : vmRed,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: statusColor.withOpacity(0.18),
-                  blurRadius: 18,
-                  spreadRadius: 2,
+              const SizedBox(height: 10),
+              LayoutBuilder(
+                builder: (context, k) => VmErrorGauge(
+                  key: ValueKey('g$errorValue$limite'),
+                  error: valid ? safeError : null,
+                  limite: limite,
+                  width: math.min(300.0, k.maxWidth),
                 ),
-              ],
-            ),
-            child: Icon(
-              conforms ? Icons.check_rounded : Icons.close_rounded,
-              color: Colors.white,
-              size: 74,
-            ),
-          ),
-          const SizedBox(height: 18),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              errorText,
-              style: const TextStyle(
-                color: vmNavy,
-                fontSize: 43,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -1.2,
               ),
-            ),
-          ),
-          const SizedBox(height: 7),
-          Text(
-            !valid ? 'DATOS INVÁLIDOS' : (conforms ? 'CONFORME' : 'FUERA DE LÍMITE'),
-            style: TextStyle(
-              color: statusColor,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(17),
-            ),
-            child: const Text(
-              'Registro de ensayo · Informe PDF disponible',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: vmMuted,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+              const SizedBox(height: 6),
+              valid
+                  ? VmAnimatedNumber(
+                      key: ValueKey('n$errorValue'),
+                      value: safeError,
+                      format: (v) => '${signo(v)}${vmComa(v.abs(), 2)} %',
+                      style: vmNumero(50),
+                      durationMs: 1200,
+                    )
+                  : Text('—', style: vmNumero(50)),
+              const SizedBox(height: 12),
+              VmVerdictPill(
+                key: ValueKey('v$conforms$valid$errorValue'),
+                aprobado: conforms,
+                texto: !valid ? 'DATOS INVÁLIDOS' : (conforms ? 'APROBADO · $clase' : 'RECHAZADO · $clase'),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            _medicionSimulada ? 'DATOS SIMULADOS POR EL EQUIPO: resultado ilustrativo, no corresponde a una medición real.' : 'Medición del prototipo VeriMed BT (sin calibración certificada).',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: vmMuted, fontSize: 11, height: 1.35),
+        ),
+        const SizedBox(height: 12),
+        VmEntrance(
+          delay: const Duration(milliseconds: 700),
+          child: VmCard(
+            color: VmColors.blueSoft,
+            radius: 18,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Text('$frase$margen', style: const TextStyle(fontSize: 14, height: 1.45, color: Color(0xFF183A66))),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          _medicionSimulada
+              ? 'DATOS SIMULADOS POR EL EQUIPO: resultado ilustrativo, no corresponde a una medición real.'
+              : 'Medición del prototipo VeriMed BT (sin calibración certificada).',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: VmColors.muted, fontSize: 11, height: 1.35),
+        ),
+      ],
     );
   }
 
@@ -2866,6 +3545,24 @@ class _VeriMedHomeState extends State<VeriMedHome> {
         ),
         const SizedBox(height: 12),
         const _DemoNotice(),
+      ],
+    );
+  }
+}
+
+class _LeyendaPunto extends StatelessWidget {
+  const _LeyendaPunto({required this.color, required this.texto});
+  final Color color;
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(texto, style: const TextStyle(fontSize: 13, color: vmInk)),
       ],
     );
   }

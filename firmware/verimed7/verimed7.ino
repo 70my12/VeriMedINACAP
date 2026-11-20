@@ -18,19 +18,26 @@
 // =====================================================================
 
 // ------------------------- CONFIGURACION -----------------------------
-#define USAR_PZEM            0   // 1 = referencia real con PZEM-004T v3
+#define USAR_PLACA           1   // 1 = referencia real desde la placa de medicion (AD71056) por J3
+#define USAR_PZEM            0   // 1 = referencia real con PZEM-004T v3 (no usar junto con USAR_PLACA)
 #define USAR_SENSOR_PULSOS   0   // 1 = sensor optico real en el LED del medidor
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.1.0"
+#define VERSION_FW     "2.3.1"
 #define FECHA_CAL      "Sin calibrar"
 
-// Pines libres de esta placa: los de la ranura microSD (sin tarjeta insertada),
-// accesibles con un adaptador "microSD a pines". Ver docs/HARDWARE.md.
-#define PIN_PULSOS    12        // DO del sensor optico
+// Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
+// (4, 5, 6, 7, 15, 16, 19, 20 los usa la pantalla; RX/TX son del puerto de programacion.)
+#define PIN_PULSOS    38        // DO del sensor optico (J2 "38")
 #define FLANCO_PULSO  FALLING
 #define PZEM_RX       13        // ESP32 RX <- TX del PZEM
 #define PZEM_TX       11        // ESP32 TX -> RX del PZEM
+// Placa de medicion (conector J3 de la placa): mismos pines que el PZEM
+#define PLACA_RX      18        // J2 "18" <- J3 pin 2 (TX, IO17 de la placa)
+#define PLACA_TX      17        // J2 "17" -> J3 pin 3 (RX, IO16 de la placa)
+#if USAR_PLACA && USAR_PZEM
+#error "Usa USAR_PLACA o USAR_PZEM, no ambos (comparten pines)."
+#endif
 
 #define V_MIN        198.0
 #define V_MAX        242.0
@@ -58,6 +65,10 @@ PZEM004Tv30 pzem(Serial1, PZEM_RX, PZEM_TX);
 SET_LOOP_TASK_STACK_SIZE(32 * 1024);
 
 // ---- Bluetooth (protocolo v2, igual que el CYD) ----
+// MEDICION: {"v","i","p","fp","f","wh","t","sim","sp","st","pul","np","kc","err","apr","alm","to","tp","av"}
+//   np: pulsos del ensayo (calculados si to > 0)   to: tiempo objetivo s (0 = pulsos manuales)
+//   tp: segundos esperados entre pulsos            av: avisos 1 sin pulsos, 2 carga baja, 4 pulsos muy rapidos
+// COMANDO: "INICIAR" | "DETENER" | "CFG:kc=1000;to=15;cl=1" | "CFG:kc=1000;np=10;to=0;cl=1"
 #define BLE_NOMBRE     "VeriMed BT"
 #define UUID_SERVICIO  "7e5a0001-3c1d-4f2b-9a6e-1b2c3d4e5f60"
 #define UUID_MEDICION  "7e5a0002-3c1d-4f2b-9a6e-1b2c3d4e5f60"
@@ -136,12 +147,35 @@ Mensaje mensaje = M_LISTO;
 
 const uint16_t LISTA_KC[] = {100, 200, 250, 400, 500, 800, 1000, 1200, 1600, 2000, 3200, 4000, 6400, 10000};
 const int N_KC = sizeof(LISTA_KC) / sizeof(LISTA_KC[0]);
-uint16_t cfgKc = 1000, cfgPulsos = 10;
+uint16_t cfgKc = 1000, cfgPulsos = 10;   // cfgPulsos: pulsos fijos (modo manual)
 uint8_t cfgClase = 1;
+uint16_t cfgTiempo = 15;                 // tiempo objetivo del ensayo en s; 0 = pulsos manuales
+
+// Duracion automatica: N = piso(tiempo objetivo / tiempo entre pulsos), minimo N_MIN.
+//   tiempo entre pulsos Tp = 3.600.000 / (Kc * P)   [s]  (P en W)
+// Ej.: Kc 1600 y 1000 W -> Tp = 2,25 s -> 15 s = 6 pulsos (13,5 s)
+const uint8_t  TIEMPOS[] = {15, 30, 60};
+const int      N_TIEMPOS = sizeof(TIEMPOS) / sizeof(TIEMPOS[0]);
+const uint16_t N_MIN = 3, N_MAX = 500;
+const float    P_MIN_W = 5.0;            // bajo esto no hay carga para ensayar
+const float    T_LARGO_S = 300.0;        // ensayo estimado mas largo: aviso de carga baja
+const float    TP_MIN_S = 0.08;          // pulsos mas rapidos chocan con el antirrebote
+const uint8_t  AV_SIN_PULSOS = 1, AV_CARGA_BAJA = 2, AV_MUY_RAPIDO = 4;
+uint8_t avisos = 0;
+uint16_t nEnsayo = 10;                   // pulsos del ensayo en curso (se fija con el 1er pulso)
 
 float V = 220.0, I = 5.20, P = 1144, FP = 0.98, F = 50.0;
 uint8_t alarmas = 0;
-bool pzemOk = !USAR_PZEM;
+bool pzemOk = !USAR_PZEM && !USAR_PLACA;   // referencia disponible (PZEM o placa)
+#if USAR_PLACA
+// U1 -> potencia y energia; U2 -> tension (pulsos ~ V^2); corriente = P / V (FP = 1)
+float pPlaca = 0, vPlaca = -1, iPlaca = -1, ePlaca = 0;   // V, I = -1: tension sin calibrar
+unsigned long tPlaca = 0;               // ultimo mensaje valido de la placa
+bool releCarga = false;
+unsigned long tCargaOn = 0;             // cuando se conecto la carga para el ensayo
+#define ESTABILIZAR_MS 5000             // espera antes de aceptar el 1er pulso (la placa mide en ventanas de 2 s)
+#endif
+bool cargaEstabilizando();
 
 double energiaWh = 0, energiaEnPulso = 0;
 unsigned long tIntegracion = 0, tInicio = 0, tUltPulso = 0;
@@ -241,6 +275,31 @@ String miles(long n) {
 String conSigno(float v, int dec) { return String(v >= 0 ? "+" : "") + String(v, dec); }
 float limiteClase() { return cfgClase == 1 ? 1.0 : 2.0; }
 
+float segPorPulso() {                     // segundos esperados entre pulsos (0 = sin carga)
+  if (P < P_MIN_W || cfgKc == 0) return 0;
+  return 3600000.0f / ((float)cfgKc * P);
+}
+uint16_t pulsosCalculados() {             // pulsos que tendra el ensayo si parte ahora
+  if (cfgTiempo == 0) return cfgPulsos;
+  float tp = segPorPulso();
+  if (tp <= 0) return N_MIN;
+  long n = (long)floorf(cfgTiempo / tp);
+  return (uint16_t)constrain(n, (long)N_MIN, (long)N_MAX);
+}
+uint16_t pulsosObjetivo() {
+  if (estado == MIDIENDO) return nEnsayo;
+  if (estado == LISTO) return ultimo.pulsos;
+  return pulsosCalculados();
+}
+String unDecimal(float v) { String s = String(v, 1); s.replace(".", ","); return s; }
+String textoDuracion() {                  // "6 pulsos · ~14 s"
+  float tp = segPorPulso();
+  uint16_t n = pulsosObjetivo();
+  String s = String(n) + " pulsos";
+  if (tp > 0) s += " · ~" + String((int)lroundf(n * tp)) + " s";
+  return s;
+}
+
 // Boton: relleno (primario) o con borde; "presionado" lo oscurece
 void boton(const Rect &r, bool relleno, uint16_t color, uint16_t colorOsc, const char *txt,
            const Icono &ic, const uint8_t *f, int gap, bool presionado) {
@@ -262,13 +321,16 @@ void boton(const Rect &r, bool relleno, uint16_t color, uint16_t colorOsc, const
 }
 
 // ========================== Persistencia ==============================
-ConfigGuardada cfgEnFlash = {0, 0, 0, 0};   // copia de lo que esta en la flash
+ConfigGuardada cfgEnFlash = {0, 0, 0, 0, 0};   // copia de lo que esta en la flash
 
 void cargarConfig() {
   ConfigGuardada c;
+  ConfigGuardadaV21 c21;
   if (prefs.getBytesLength("cfg") == sizeof(c) && prefs.getBytes("cfg", &c, sizeof(c)) == sizeof(c)) {
-    cfgKc = c.kc; cfgPulsos = c.np; cfgClase = c.clase; bleHabilitado = c.ble;
+    cfgKc = c.kc; cfgPulsos = c.np; cfgClase = c.clase; bleHabilitado = c.ble; cfgTiempo = c.to;
     cfgEnFlash = c;
+  } else if (prefs.getBytesLength("cfg") == sizeof(c21) && prefs.getBytes("cfg", &c21, sizeof(c21)) == sizeof(c21)) {
+    cfgKc = c21.kc; cfgPulsos = c21.np; cfgClase = c21.clase; bleHabilitado = c21.ble;   // 2.1.0: queda en 15 s
   } else if (prefs.isKey("kc")) {            // formato anterior (version 2.1.0)
     cfgKc = prefs.getUShort("kc", 1000);
     cfgPulsos = prefs.getUShort("np", 10);
@@ -287,12 +349,12 @@ void cargarConfig() {
   }
 }
 bool configCambio() {
-  ConfigGuardada c = {cfgKc, cfgPulsos, cfgClase, (uint8_t)(bleHabilitado ? 1 : 0)};
+  ConfigGuardada c = {cfgKc, cfgPulsos, cfgClase, (uint8_t)(bleHabilitado ? 1 : 0), cfgTiempo};
   return memcmp(&c, &cfgEnFlash, sizeof(c)) != 0;
 }
 // Guarda la configuracion SOLO si cambio (la app la envia al iniciar cada ensayo)
 void guardarConfig() {
-  ConfigGuardada c = {cfgKc, cfgPulsos, cfgClase, (uint8_t)(bleHabilitado ? 1 : 0)};
+  ConfigGuardada c = {cfgKc, cfgPulsos, cfgClase, (uint8_t)(bleHabilitado ? 1 : 0), cfgTiempo};
   if (memcmp(&c, &cfgEnFlash, sizeof(c)) == 0) return;
   prefs.putBytes("cfg", &c, sizeof(c));
   cfgEnFlash = c;
@@ -333,7 +395,7 @@ void dibujarPildoras() {
   icono(I7_BT_20, x + 12, 22, fg);
   texto(t, x + 40, 32, F7_SB14, fg, middle_left);
   // Modo de medicion
-  bool sim = !USAR_PZEM || !USAR_SENSOR_PULSOS;
+  bool sim = (!USAR_PZEM && !USAR_PLACA) || !USAR_SENSOR_PULSOS;
   const char *t2 = sim ? "SIMULACIÓN" : "MEDICIÓN REAL";
   int an2 = anchoTexto(t2, F7_SB14) + 28;
   int x2 = x - 10 - an2;
@@ -357,30 +419,43 @@ void dibujarEstado() {
   int cy = r.y + r.h / 2 + 1;
   if (!alarmas && estado == MIDIENDO) {
     g.fillSmoothRoundRect(r.x, r.y, r.w, r.h, 10, C_AMBAR_BG);
-    int fw = (int)((r.w - 6) * (float)pulsos / cfgPulsos);
+    int fw = (int)((r.w - 6) * (float)pulsos / max((int)nEnsayo, 1));
     if (fw > 20) g.fillSmoothRoundRect(r.x + 3, r.y + 3, fw, r.h - 6, 8, C_AMBAR_BAR);
     icono(I7_PULSO_24, r.x + 12, r.y + 8, C_AMBAR);
-    texto("Midiendo · pulso " + String(pulsos) + " de " + String(cfgPulsos) + " · " + String(energiaWh, 3) + " Wh",
+    texto("Midiendo · pulso " + String(pulsos) + " de " + String(nEnsayo) + " · " + String(energiaWh, 3) + " Wh",
           r.x + 46, cy, F7_SB18, C_AMBAR, middle_left);
     return;
   }
   uint16_t bg = C_VERDE_BG, fg = C_VERDE;
   const Icono *ic = &I7_CHECK_24;
-  String msg = "Listo para medir · Kc " + String(cfgKc) + " · " + String(cfgPulsos) + " pulsos · clase " + String(cfgClase);
+  String msg = "Listo para medir · Kc " + String(cfgKc) + " · " + textoDuracion() + " · clase " + String(cfgClase);
   if (alarmas) {
     bg = C_ROJO_BG; fg = C_ROJO; ic = &I7_ALERTA_24;
     if (alarmas & 8) msg = "Sin señal del medidor de referencia (¿hay 220 V?)";
     else if (alarmas & 1) msg = "ALERTA: sobretensión " + String(V, 0) + " V";
     else if (alarmas & 2) msg = "ALERTA: tensión baja " + String(V, 0) + " V";
     else msg = "ALERTA: sobrecorriente " + String(I, 1) + " A";
+  } else if ((avisos & AV_SIN_PULSOS) && ensayoActivo()) {
+    bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
+    msg = "Sin pulsos: revisa el sensor o si el medidor está registrando";
+  } else if (estado == ESPERA && cargaEstabilizando()) {
+    bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
+    msg = "Conectando la carga de ensayo y estabilizando la medición...";
   } else if (estado == ESPERA) {
-    bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24; msg = "Esperando el primer pulso del LED del medidor...";
+    bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
+    float tp = segPorPulso();
+    msg = tp > 0 ? "Esperando el primer pulso · se espera 1 cada " + unDecimal(tp) + " s"
+                 : "Esperando el primer pulso del LED del medidor...";
   } else if (mensaje == M_APP_ON)  { bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_BT_20; msg = "App VeriMed conectada"; }
   else if (mensaje == M_APP_OFF)   { bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_BT_20; msg = "App desconectada · el equipo sigue visible"; }
   else if (mensaje == M_BT_OFF)    { bg = C_GRIS_BG; fg = C_GRIS; ic = &I7_BT_20; msg = "Bluetooth apagado · toca la etiqueta para encenderlo"; }
   else if (mensaje == M_BT_ON)     { bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_BT_20; msg = "Bluetooth encendido · visible para la app"; }
   else if (mensaje == M_CANCELADO) { bg = C_GRIS_BG; fg = C_GRIS; ic = &I7_EQUIS_24; msg = "Ensayo cancelado"; }
   else if (mensaje == M_GUARDADO)  { msg = "Resultado guardado en el historial"; }
+  else if (avisos & AV_CARGA_BAJA) { bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
+    msg = P < P_MIN_W ? "Sin carga: conecta la carga de ensayo" : "Carga baja: el ensayo duraría más de 5 minutos"; }
+  else if (avisos & AV_MUY_RAPIDO) { bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
+    msg = "Pulsos demasiado rápidos: usa una carga menor"; }
   g.fillSmoothRoundRect(r.x, r.y, r.w, r.h, 10, bg);
   icono(*ic, r.x + 12 + (24 - ic->w) / 2, r.y + (r.h - ic->h) / 2, fg);
   texto(msg, r.x + 46, cy, F7_SB18, fg, middle_left);
@@ -411,6 +486,9 @@ void dibujarValorTarjeta(int k) {
     default: v = String(FP, 2); break;
   }
   if (!pzemOk) { v = "---"; col = C_GRIS; }
+#if USAR_PLACA
+  if (k == 3 || (k < 2 && vPlaca < 0)) { v = "---"; col = C_GRIS; }   // FP no se mide; V e I sin calibrar
+#endif
   g.fillRect(r.x + 12, r.y + 34, 192, 62, C_CARD);
   texto(v, r.x + 16, r.y + 38, F7_B56, col);
 }
@@ -475,15 +553,18 @@ void dibujarDatosEnsayo() {
   const Rect &r = R_ENSAYO;
   g.fillRect(R_DATOS_ENSAYO.x, R_DATOS_ENSAYO.y, R_DATOS_ENSAYO.w, R_DATOS_ENSAYO.h, C_CARD);
   uint16_t p = (estado == MIDIENDO) ? pulsos : 0;
-  texto(String(p) + " / " + String(cfgPulsos), r.x + r.w / 2, r.y + 70, F7_B44, C_TEXTO, middle_center);
-  texto("pulsos del medidor", r.x + r.w / 2, r.y + 102, F7_SB14, C_GRIS, middle_center);
+  uint16_t nObj = max((int)pulsosObjetivo(), 1);
+  texto(String(p) + " / " + String(nObj), r.x + r.w / 2, r.y + 70, F7_B44, C_TEXTO, middle_center);
+  texto(cfgTiempo ? "pulsos · automático " + String(cfgTiempo) + " s" : String("pulsos · manual"),
+        r.x + r.w / 2, r.y + 102, F7_SB14, C_GRIS, middle_center);
   g.fillSmoothRoundRect(r.x + 16, r.y + 118, r.w - 32, 12, 6, C_GRIS_BG);
-  int fw = (int)((r.w - 32) * (float)p / cfgPulsos);
+  int fw = (int)((r.w - 32) * (float)p / nObj);
   if (fw > 12) g.fillSmoothRoundRect(r.x + 16, r.y + 118, fw, 12, 6, C_AZUL);
 
+  float tp = segPorPulso();
   String filas[3][2] = {
-    {"Kc", String(cfgKc) + " imp/kWh"},
-    {"Clase", String(cfgClase) + "  ·  ±" + String(cfgClase) + " %"},
+    {"Kc · clase", String(cfgKc) + " · ±" + String(cfgClase) + " %"},
+    {"1 pulso cada", tp > 0 ? unDecimal(tp) + " s" : String("-")},
     {"Energía ref.", "-"}};
   if (estado == MIDIENDO) filas[2][1] = String(energiaWh, 3) + " Wh";
   for (int k = 0; k < 3; k++) {
@@ -520,10 +601,16 @@ void dibujarFilaAjuste(int fila) {
   int y = FILA_Y[fila];
   g.fillRect(24, y + 2, 752, 88, C_CARD);
   if (fila) g.drawFastHLine(32, y, 736, C_BORDE);
-  const char *et[3] = {"Constante Kc", "Pulsos de ensayo", "Clase del medidor"};
-  const char *ay[3] = {"Impulsos por kWh: está en la placa del medidor", "Más pulsos, resultado más preciso", "Límite de error aceptado"};
+  const char *et[3] = {"Constante Kc", "Duración del ensayo", "Clase del medidor"};
+  String ay = fila == 0 ? "Impulsos por kWh: está en la placa del medidor" : "Límite de error aceptado";
+  if (fila == 1) {
+    float tp = segPorPulso();
+    if (cfgTiempo == 0) ay = "Pulsos fijos (manual). Con - vuelves a automático";
+    else if (tp > 0) ay = "Automático: " + String(pulsosCalculados()) + " pulsos, 1 cada " + unDecimal(tp) + " s";
+    else ay = "Automático: los pulsos se calculan con la carga conectada";
+  }
   texto(et[fila], 36, y + 20, F7_B24, C_TEXTO);
-  texto(ay[fila], 36, y + 54, F7_M17, C_GRIS);
+  texto(ay, 36, y + 54, F7_M17, C_GRIS);
   if (fila < 2) {
     const Rect &menos = fila == 0 ? R_KC_MENOS : R_NP_MENOS;
     const Rect &mas = fila == 0 ? R_KC_MAS : R_NP_MAS;
@@ -532,7 +619,8 @@ void dibujarFilaAjuste(int fila) {
     g.fillSmoothRoundRect(mas.x, mas.y, mas.w, mas.h, 12, botonPresionado == bp ? C_BORDE : C_AZUL_BG);
     texto("-", menos.x + menos.w / 2, menos.y + menos.h / 2, F7_B30, C_AZUL, middle_center);
     texto("+", mas.x + mas.w / 2, mas.y + mas.h / 2, F7_B30, C_AZUL, middle_center);
-    texto(String(fila == 0 ? cfgKc : cfgPulsos), 634, y + 46, F7_B44, C_TEXTO, middle_center);
+    String v = fila == 0 ? String(cfgKc) : cfgTiempo ? String(cfgTiempo) + " s" : String(cfgPulsos) + " p";
+    texto(v, 634, y + 46, F7_B44, C_TEXTO, middle_center);
   } else {
     const Rect *bs[2] = {&R_CLASE1, &R_CLASE2};
     for (int c = 0; c < 2; c++) {
@@ -617,8 +705,49 @@ void refrescarBotones(){ if (pantalla == PRINCIPAL) pintar({536, 352, 248, 112},
 void refrescarPildoras(){ pintar(R_PILDORAS, dibujarPildoras); }
 
 // ============================ Mediciones ==============================
+#if USAR_PLACA
+// Mensaje de la placa: $VM,<P W>,<E Wh>,<pulsos>,<V>,<I A>,<rele>*CS
+void procesarLineaPlaca(const char *l) {
+  if (l[0] != '$') return;
+  const char *ast = strchr(l, '*');
+  if (!ast) return;
+  uint8_t cs = 0;
+  for (const char *c = l + 1; c < ast; c++) cs ^= (uint8_t)*c;
+  if (strtoul(ast + 1, nullptr, 16) != cs) return;           // mensaje danado
+  float p, e, v, i;
+  unsigned long n;
+  int rl;
+  if (sscanf(l + 1, "VM,%f,%f,%lu,%f,%f,%d", &p, &e, &n, &v, &i, &rl) != 6) return;
+  pPlaca = p; ePlaca = e; vPlaca = v; iPlaca = i;
+  releCarga = rl == 1;
+  tPlaca = millis();
+}
+void leerPlaca() {
+  static char buf[128];
+  static uint8_t n = 0;
+  while (Serial1.available()) {
+    char ch = Serial1.read();
+    if (ch == '\n' || ch == '\r') { buf[n] = 0; if (n) procesarLineaPlaca(buf); n = 0; }
+    else if (n < sizeof(buf) - 1) buf[n++] = ch;
+    else n = 0;
+  }
+}
+void enviarPlaca(const char *cuerpo) {
+  uint8_t cs = 0;
+  for (const char *c = cuerpo; *c; c++) cs ^= (uint8_t)*c;
+  Serial1.printf("$%s*%02X\n", cuerpo, cs);
+}
+#endif
+
 void leerReferencia() {
-#if USAR_PZEM
+#if USAR_PLACA
+  // U1 entrega potencia, U2 tension; la corriente es P/V (supone FP = 1). FP no se mide.
+  pzemOk = tPlaca != 0 && millis() - tPlaca < 2000;
+  P = pzemOk ? pPlaca : 0;
+  V = (pzemOk && vPlaca > 0) ? vPlaca : 0;
+  I = (pzemOk && iPlaca > 0) ? iPlaca : 0;
+  FP = F = 0;
+#elif USAR_PZEM
   float v = pzem.voltage();
   if (isnan(v)) { pzemOk = false; return; }
   pzemOk = true;
@@ -638,6 +767,9 @@ void leerReferencia() {
 }
 uint8_t calcularAlarmas() {
   if (!pzemOk) return 8;
+#if USAR_PLACA
+  if (vPlaca < 0) return 0;               // tension sin calibrar: sin alarmas de red
+#endif
   uint8_t a = 0;
   if (V > V_MAX) a |= 1;
   if (V < V_MIN && V > 20) a |= 2;
@@ -663,13 +795,22 @@ void iniciarEnsayo() {
   duracionFinal = 0;
   energiaSimMedidor = 0;
   errSim = random(-150, 151) / 100.0;
+  nEnsayo = pulsosCalculados();
+  avisos &= ~AV_SIN_PULSOS;
   noInterrupts(); pulsosISR = 0; interrupts();
   tInicio = tUltPulso = millis();
+#if USAR_PLACA
+  enviarPlaca("RELE,1");                  // conecta la carga de ensayo
+  tCargaOn = millis();
+#endif
   if (pantalla != PRINCIPAL) pantallaPrincipal();
   else { refrescarEstado(); refrescarPanel(); refrescarBotones(); }
 }
 
 void finalizarEnsayo() {
+#if USAR_PLACA
+  enviarPlaca("RELE,0");                  // desconecta la carga al terminar
+#endif
   Resultado r;
   r.id = proximoId++;
   r.pulsos = pulsos;
@@ -690,16 +831,31 @@ void finalizarEnsayo() {
 
 void detenerEnsayo() {
   if (!ensayoActivo()) return;
+  avisos &= ~AV_SIN_PULSOS;
   if (estado == MIDIENDO && pulsos >= 1) { finalizarEnsayo(); return; }
+#if USAR_PLACA
+  enviarPlaca("RELE,0");                  // cancelado: desconecta la carga
+#endif
   estado = REPOSO;
   mensaje = M_CANCELADO;
   refrescarEstado(); refrescarPanel(); refrescarBotones();
 }
 
+// true mientras la carga recien conectada se estabiliza (no se acepta el 1er pulso)
+bool cargaEstabilizando() {
+#if USAR_PLACA
+  return millis() - tCargaOn < ESTABILIZAR_MS || !releCarga || P < P_MIN_W;
+#else
+  return false;
+#endif
+}
+
 void procesarPulso(unsigned long tPulso) {
+  if (estado == ESPERA && cargaEstabilizando()) return;   // pulso ignorado: la potencia aun no es valida
   if (estado == ESPERA) {
     estado = MIDIENDO;
     pulsos = 0;
+    nEnsayo = pulsosCalculados();          // se fija con la potencia del momento
     energiaWh = energiaEnPulso = 0;
     tIntegracion = tInicio = tUltPulso = tPulso;
   } else if (estado == MIDIENDO) {
@@ -707,8 +863,9 @@ void procesarPulso(unsigned long tPulso) {
     pulsos++;
     energiaEnPulso = energiaWh;
     tUltPulso = tPulso;
-    if (pulsos >= cfgPulsos) { finalizarEnsayo(); return; }
+    if (pulsos >= nEnsayo) { finalizarEnsayo(); return; }
   } else return;
+  avisos &= ~AV_SIN_PULSOS;
   refrescarEstado(); refrescarPanel();
 }
 
@@ -732,6 +889,26 @@ void revisarPulsos(unsigned long ahora) {
 #endif
 }
 
+// Avisos: sin pulsos (3 veces el tiempo esperado, minimo 10 s), carga baja, pulsos muy rapidos
+uint8_t calcularAvisos(unsigned long ahora) {
+  uint8_t a = 0;
+  float tp = segPorPulso();
+  bool cargaConectada = true;
+#if USAR_PLACA
+  cargaConectada = releCarga && millis() - tCargaOn >= ESTABILIZAR_MS;   // en reposo la carga esta apagada
+#endif
+  if (pzemOk && cargaConectada) {
+    if (tp <= 0 || pulsosCalculados() * tp > T_LARGO_S) a |= AV_CARGA_BAJA;
+    if (tp > 0 && tp < TP_MIN_S) a |= AV_MUY_RAPIDO;
+  }
+  if (ensayoActivo()) {
+    float limite = max(10.0f, 3.0f * (tp > 0 ? tp : 10.0f));
+    unsigned long desde = estado == ESPERA ? tInicio : tUltPulso;
+    if ((ahora - desde) / 1000.0f > limite + (estado == ESPERA ? tp : 0)) a |= AV_SIN_PULSOS;
+  }
+  return a;
+}
+
 // ============================ Bluetooth ===============================
 float segundosEnsayo() {
   if (estado == MIDIENDO) return (millis() - tInicio) / 1000.0;
@@ -740,14 +917,16 @@ float segundosEnsayo() {
 }
 void enviarMedicion() {
   if (!chMedicion) return;
-  char json[200];
+  char json[256];
   snprintf(json, sizeof(json),
     "{\"v\":%.1f,\"i\":%.2f,\"p\":%.1f,\"fp\":%.2f,\"f\":%.1f,\"wh\":%.4f,\"t\":%.1f,\"sim\":%d,\"sp\":%d,"
-    "\"st\":%d,\"pul\":%u,\"np\":%u,\"kc\":%u,\"err\":%.3f,\"apr\":%d,\"alm\":%u}",
+    "\"st\":%d,\"pul\":%u,\"np\":%u,\"kc\":%u,\"err\":%.3f,\"apr\":%d,\"alm\":%u,"
+    "\"to\":%u,\"tp\":%.2f,\"av\":%u}",
     V, I, P, FP, F, estado == LISTO ? ultimo.eref : energiaWh, segundosEnsayo(),
-    USAR_PZEM ? 0 : 1, USAR_SENSOR_PULSOS ? 0 : 1, (int)estado,
-    (unsigned)(estado == LISTO ? ultimo.pulsos : pulsos), (unsigned)cfgPulsos, (unsigned)cfgKc,
-    hayResultado ? ultimo.err : 0.0, hayResultado && ultimo.aprobado ? 1 : 0, (unsigned)alarmas);
+    (USAR_PZEM || USAR_PLACA) ? 0 : 1, USAR_SENSOR_PULSOS ? 0 : 1, (int)estado,
+    (unsigned)(estado == LISTO ? ultimo.pulsos : pulsos), (unsigned)pulsosObjetivo(), (unsigned)cfgKc,
+    hayResultado ? ultimo.err : 0.0, hayResultado && ultimo.aprobado ? 1 : 0, (unsigned)alarmas,
+    (unsigned)cfgTiempo, segPorPulso(), (unsigned)avisos);
   chMedicion->setValue((uint8_t *)json, strlen(json));
   if (bleConectado) chMedicion->notify();
 }
@@ -755,7 +934,7 @@ void actualizarInfo() {
   if (!chInfo) return;
   char json[160];
   snprintf(json, sizeof(json), "{\"sn\":\"%s\",\"fw\":\"%s\",\"cal\":\"%s\",\"pzem\":%d,\"sens\":%d}",
-           NUMERO_SERIE, VERSION_FW, FECHA_CAL, USAR_PZEM, USAR_SENSOR_PULSOS);
+           NUMERO_SERIE, VERSION_FW, FECHA_CAL, (USAR_PZEM || USAR_PLACA) ? 1 : 0, USAR_SENSOR_PULSOS);
   chInfo->setValue((uint8_t *)json, strlen(json));
 }
 
@@ -775,9 +954,13 @@ class ComandoCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+// "CFG:kc=1000;to=15;cl=1"  (to=0 + np=N -> pulsos manuales; una app antigua que solo manda np queda en manual)
 void aplicarConfig(const String &s) {
+  if (ensayoActivo()) return;             // no se cambia a mitad de un ensayo
   int i = s.indexOf("kc="); if (i >= 0) { long v = s.substring(i + 3).toInt(); if (v >= 1 && v <= 65000) cfgKc = v; }
-  i = s.indexOf("np=");     if (i >= 0) { long v = s.substring(i + 3).toInt(); if (v >= 1 && v <= 500) cfgPulsos = v; }
+  bool hayTo = false;
+  i = s.indexOf("to=");     if (i >= 0) { long v = s.substring(i + 3).toInt(); if (v == 0 || (v >= 5 && v <= 600)) { cfgTiempo = v; hayTo = true; } }
+  i = s.indexOf("np=");     if (i >= 0) { long v = s.substring(i + 3).toInt(); if (v >= 1 && v <= 500) { cfgPulsos = v; if (!hayTo) cfgTiempo = 0; } }
   i = s.indexOf("cl=");     if (i >= 0) { long v = s.substring(i + 3).toInt(); if (v == 1 || v == 2) cfgClase = v; }
   if (configCambio()) conPantallaOculta([] { guardarConfig(); });   // solo si la app cambio algo
   if (pantalla == AJUSTES) pantallaAjustes();
@@ -905,10 +1088,23 @@ void cambiarAjuste(BotonId b) {
   if (b == B_KC_MENOS || b == B_KC_MAS) {
     int k = constrain(indiceKc() + (b == B_KC_MAS ? 1 : -1), 0, N_KC - 1);
     cfgKc = LISTA_KC[k];
+    pintar({24, 194, 752, 88}, [] { dibujarFilaAjuste(1); });   // los pulsos automaticos dependen del Kc
   } else {
+    // Duracion: [15 s, 30 s, 60 s, 1 p, 2 p ... 10 p, 15 p ... 100 p]
     int dir = (b == B_NP_MAS) ? 1 : -1;
-    int paso = (cfgPulsos + (dir > 0 ? 0 : -1)) >= 10 ? 5 : 1;
-    cfgPulsos = constrain((int)cfgPulsos + dir * paso, 1, 100);
+    if (cfgTiempo) {
+      int k = 0;
+      while (k < N_TIEMPOS - 1 && TIEMPOS[k] < cfgTiempo) k++;
+      k += dir;
+      if (k < 0) k = 0;
+      if (k >= N_TIEMPOS) { cfgTiempo = 0; cfgPulsos = 1; }
+      else cfgTiempo = TIEMPOS[k];
+    } else if (dir < 0 && cfgPulsos <= 1) {
+      cfgTiempo = TIEMPOS[N_TIEMPOS - 1];
+    } else {
+      int paso = (cfgPulsos + (dir > 0 ? 0 : -1)) >= 10 ? 5 : 1;
+      cfgPulsos = constrain((int)cfgPulsos + dir * paso, 1, 100);
+    }
   }
   pintarBoton(b);
 }
@@ -974,6 +1170,11 @@ void setup() {
   Serial.printf("\nVeriMed BT 7\" - motivo del ultimo reinicio: %d (1=encendido, 3=software, 4=fallo/panic, 6=watchdog)\n",
                 (int)esp_reset_reason());
   randomSeed(esp_random());
+#if USAR_PLACA
+  Serial1.begin(115200, SERIAL_8N1, PLACA_RX, PLACA_TX);
+  delay(50);
+  enviarPlaca("RELE,0");                  // la carga solo se conecta durante el ensayo
+#endif
 #if USAR_SENSOR_PULSOS
   pinMode(PIN_PULSOS, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(PIN_PULSOS), isrPulso, FLANCO_PULSO);
@@ -1026,12 +1227,21 @@ void loop() {
     if (bleConectado) enviarMedicion();
   }
   procesarComando();
+#if USAR_PLACA
+  leerPlaca();
+#endif
 
   // Referencia y pantalla cada 500 ms (solo se copian las zonas que cambian)
   if (ahora - tLectura >= 500) {
     tLectura = ahora;
     if (estado == MIDIENDO) integrarHasta(ahora);
     leerReferencia();
+#if USAR_PLACA
+    // Durante el ensayo la carga debe estar conectada: si la placa se reinicio o
+    // se perdio la orden, se vuelve a enviar. En reposo no se fuerza nada, asi se
+    // puede encender la carga a mano desde el monitor serie para calibrar.
+    if (pzemOk && ensayoActivo() && !releCarga) enviarPlaca("RELE,1");
+#endif
     agregarMuestra(P);
     uint8_t a = calcularAlarmas();
     bool cambioAlarma = a != alarmas;
@@ -1042,8 +1252,22 @@ void loop() {
       for (int k = 0; k < 4; k++) pintar(zonaValor(k), [k] { dibujarValorTarjeta(k); });
       pintar(R_GRAF_CURVA, dibujarCurva);
       pintar(R_GRAF_ETIQ, dibujarEtiquetaGrafico);
-      if (estado == MIDIENDO || cambioAlarma) refrescarEstado();
-      if (estado == MIDIENDO) pintar(R_DATOS_ENSAYO, dibujarDatosEnsayo);
+      uint8_t av = calcularAvisos(ahora);
+      bool cambioAviso = av != avisos;
+      avisos = av;
+      // en reposo los pulsos calculados y el tiempo entre pulsos siguen a la carga
+      static String datosMostrados = "";
+      String datos = textoDuracion() + unDecimal(segPorPulso());
+      bool cambioDatos = !ensayoActivo() && estado != LISTO && datos != datosMostrados;
+      if (cambioDatos) datosMostrados = datos;
+      static bool estabMostrado = false;
+      bool estab = estado == ESPERA && cargaEstabilizando();
+      bool cambioEstab = estab != estabMostrado;
+      estabMostrado = estab;
+      if (estado == MIDIENDO || cambioAlarma || cambioAviso || cambioDatos || cambioEstab) refrescarEstado();
+      if (estado == MIDIENDO || cambioDatos) pintar(R_DATOS_ENSAYO, dibujarDatosEnsayo);
+    } else {
+      avisos = calcularAvisos(ahora);
     }
   }
 

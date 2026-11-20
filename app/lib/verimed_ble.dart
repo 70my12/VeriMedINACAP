@@ -3,9 +3,12 @@
 // Debe coincidir con verimed_v2.ino:
 //   Servicio  7e5a0001-3c1d-4f2b-9a6e-1b2c3d4e5f60
 //   MEDICION  7e5a0002-...  READ + NOTIFY  JSON:
-//     {"v","i","p","fp","f","wh","t","sim","sp","st","pul","np","kc","err","apr","alm"}
+//     {"v","i","p","fp","f","wh","t","sim","sp","st","pul","np","kc","err","apr","alm","to","tp","av"}
 //     st: 0 reposo, 1 esperando 1er pulso, 2 midiendo, 3 resultado listo
-//   COMANDO   7e5a0003-...  WRITE  "INICIAR" | "DETENER" | "CFG:kc=1000;np=10;cl=1"
+//     np: pulsos del ensayo (calculados por el equipo si to > 0)
+//     to: tiempo objetivo en s (0 = pulsos manuales)   tp: s esperados entre pulsos
+//     av: avisos 1 sin pulsos, 2 carga baja, 4 pulsos muy rápidos
+//   COMANDO   7e5a0003-...  WRITE  "INICIAR" | "DETENER" | "CFG:kc=1000;to=15;np=10;cl=1"
 //   INFO      7e5a0004-...  READ   {"sn","fw","cal","pzem","sens"}
 
 import 'dart:async';
@@ -38,6 +41,9 @@ class VeriMedLectura {
     required this.errorPct,
     required this.aprobado,
     required this.alarmas,
+    this.tiempoObjetivo = 0,
+    this.segPorPulso = 0,
+    this.avisos = 0,
   });
 
   final double tension; // V
@@ -56,6 +62,18 @@ class VeriMedLectura {
   final double errorPct; // error del último resultado
   final bool aprobado;
   final int alarmas; // bits: 1 sobretensión, 2 subtensión, 4 sobrecorriente, 8 sin PZEM
+  final int tiempoObjetivo; // s (0 = pulsos manuales o firmware antiguo)
+  final double segPorPulso; // s esperados entre pulsos con la carga actual (0 = sin dato)
+  final int avisos; // bits: 1 sin pulsos, 2 carga baja, 4 pulsos muy rápidos
+
+  String? get textoAviso {
+    if (avisos & 1 != 0) return 'No llegan pulsos del medidor: revisa la posición del sensor o si el medidor está registrando.';
+    if (avisos & 2 != 0) {
+      return potencia < 5 ? 'Sin carga conectada: conecta la carga de ensayo.' : 'Carga baja: el ensayo duraría más de 5 minutos. Usa una carga mayor.';
+    }
+    if (avisos & 4 != 0) return 'Pulsos demasiado rápidos para el sensor: usa una carga menor.';
+    return null;
+  }
 
   bool get midiendo => estado == EstadoEnsayo.esperandoPulso || estado == EstadoEnsayo.midiendo;
   bool get resultadoListo => estado == EstadoEnsayo.resultadoListo;
@@ -91,6 +109,9 @@ class VeriMedLectura {
       errorPct: _num(j['err']),
       aprobado: _int(j['apr']) == 1,
       alarmas: _int(j['alm']),
+      tiempoObjetivo: _int(j['to']),
+      segPorPulso: _num(j['tp']),
+      avisos: _int(j['av']),
     );
   }
 }
@@ -176,15 +197,22 @@ class VeriMedBle extends ChangeNotifier {
 
   /// Pide los permisos de Bluetooth al usuario (solo Android).
   /// En iPhone el sistema los pide solo la primera vez que se usa Bluetooth.
+  /// Resultado del permiso de ubicación pedido junto con el de Bluetooth.
+  PermissionStatus? estadoUbicacion;
+
   Future<bool> pedirPermisos() async {
     if (defaultTargetPlatform != TargetPlatform.android) {
       permisosOk = true;
       return true;
     }
     try {
-      final estados = await [Permission.bluetoothScan, Permission.bluetoothConnect].request();
-      permisosOk = estados.values.every((e) => e.isGranted || e.isLimited);
-      permisosBloqueados = estados.values.any((e) => e.isPermanentlyDenied);
+      // Bluetooth y ubicación en UNA sola tanda: Android muestra un diálogo tras otro.
+      // (Si la ubicación se pide aparte mientras está abierto el de Bluetooth, se pierde.)
+      final estados = await [Permission.bluetoothScan, Permission.bluetoothConnect, Permission.locationWhenInUse].request();
+      final bt = [estados[Permission.bluetoothScan], estados[Permission.bluetoothConnect]];
+      permisosOk = bt.every((e) => e != null && (e.isGranted || e.isLimited));
+      permisosBloqueados = bt.any((e) => e != null && e.isPermanentlyDenied);
+      estadoUbicacion = estados[Permission.locationWhenInUse];
     } catch (e) {
       permisosOk = false;
       error = 'No se pudieron pedir los permisos de Bluetooth. Revisa AndroidManifest.xml.';
@@ -391,8 +419,10 @@ class VeriMedBle extends ChangeNotifier {
   }
 
   /// Configura el ensayo en el equipo: constante Kc, N pulsos y clase (1 o 2).
-  Future<void> enviarConfiguracion({required int kc, required int pulsos, required int clase}) =>
-      enviarComando('CFG:kc=$kc;np=$pulsos;cl=$clase');
+  /// [tiempo] = duración objetivo en s (el equipo calcula los pulsos); 0 = usar [pulsos] fijos.
+  /// Un firmware antiguo ignora "to" y usa "np".
+  Future<void> enviarConfiguracion({required int kc, required int pulsos, required int clase, int tiempo = 0}) =>
+      enviarComando('CFG:kc=$kc;to=$tiempo;np=$pulsos;cl=$clase');
 
   void _procesarDatos(List<int> bytes) {
     if (bytes.isEmpty) return;
