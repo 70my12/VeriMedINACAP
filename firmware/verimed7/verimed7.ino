@@ -21,9 +21,11 @@
 #define USAR_PLACA           1   // 1 = referencia real desde la placa de medicion (AD71056) por J3
 #define USAR_PZEM            0   // 1 = referencia real con PZEM-004T v3 (no usar junto con USAR_PLACA)
 #define USAR_SENSOR_PULSOS   0   // 1 = sensor optico real en el LED del medidor
+// Sin sensor y con medicion real: el tecnico marca cada destello del LED con el boton PULSO de la pantalla
+#define PULSOS_TACTILES      (!USAR_SENSOR_PULSOS && (USAR_PLACA || USAR_PZEM))
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.3.1"
+#define VERSION_FW     "2.4.0"
 #define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
@@ -125,6 +127,8 @@ const Rect R_ENSAYO    = {536, 128, 248, 212};
 const Rect R_INICIAR   = {536, 352, 248, 56};
 const Rect R_AJUSTES   = {536, 418, 118, 46};
 const Rect R_HIST      = {666, 418, 118, 46};
+const Rect R_PULSO     = {536, 352, 248, 64};   // durante el ensayo, sin sensor optico
+const Rect R_DETENER_T = {536, 424, 248, 40};
 const Rect R_TOQUE_BT  = {560, 0, 240, 64};
 // Ajustes
 const int  FILA_Y[3]   = {100, 192, 284};
@@ -395,7 +399,7 @@ void dibujarPildoras() {
   icono(I7_BT_20, x + 12, 22, fg);
   texto(t, x + 40, 32, F7_SB14, fg, middle_left);
   // Modo de medicion
-  bool sim = (!USAR_PZEM && !USAR_PLACA) || !USAR_SENSOR_PULSOS;
+  bool sim = (!USAR_PZEM && !USAR_PLACA) || (!USAR_SENSOR_PULSOS && !PULSOS_TACTILES);
   const char *t2 = sim ? "SIMULACIÓN" : "MEDICIÓN REAL";
   int an2 = anchoTexto(t2, F7_SB14) + 28;
   int x2 = x - 10 - an2;
@@ -437,15 +441,20 @@ void dibujarEstado() {
     else msg = "ALERTA: sobrecorriente " + String(I, 1) + " A";
   } else if ((avisos & AV_SIN_PULSOS) && ensayoActivo()) {
     bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
-    msg = "Sin pulsos: revisa el sensor o si el medidor está registrando";
+    msg = PULSOS_TACTILES ? "Sin pulsos: toca PULSO con cada destello del LED del medidor"
+                          : "Sin pulsos: revisa el sensor o si el medidor está registrando";
   } else if (estado == ESPERA && cargaEstabilizando()) {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     msg = "Conectando la carga de ensayo y estabilizando la medición...";
   } else if (estado == ESPERA) {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     float tp = segPorPulso();
-    msg = tp > 0 ? "Esperando el primer pulso · se espera 1 cada " + unDecimal(tp) + " s"
-                 : "Esperando el primer pulso del LED del medidor...";
+    if (PULSOS_TACTILES)
+      msg = tp > 0 ? "Toca PULSO con cada destello del LED · 1 cada " + unDecimal(tp) + " s"
+                   : "Toca PULSO con cada destello del LED del medidor";
+    else
+      msg = tp > 0 ? "Esperando el primer pulso · se espera 1 cada " + unDecimal(tp) + " s"
+                   : "Esperando el primer pulso del LED del medidor...";
   } else if (mensaje == M_APP_ON)  { bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_BT_20; msg = "App VeriMed conectada"; }
   else if (mensaje == M_APP_OFF)   { bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_BT_20; msg = "App desconectada · el equipo sigue visible"; }
   else if (mensaje == M_BT_OFF)    { bg = C_GRIS_BG; fg = C_GRIS; ic = &I7_BT_20; msg = "Bluetooth apagado · toca la etiqueta para encenderlo"; }
@@ -577,6 +586,16 @@ void dibujarDatosEnsayo() {
 bool ensayoActivo() { return estado == ESPERA || estado == MIDIENDO; }
 
 void dibujarBotonesPrincipal() {
+#if PULSOS_TACTILES
+  if (ensayoActivo()) {
+    limpiar({536, 352, 248, 112});
+    bool listo = !cargaEstabilizando();
+    boton(R_PULSO, true, listo ? C_AZUL : C_GRIS, listo ? C_AZUL_OSC : C_GRIS, "PULSO", I7_PULSO_24, F7_B30, 10,
+          botonPresionado == B_PULSO && listo);
+    boton(R_DETENER_T, false, C_ROJO, C_ROJO, "DETENER", I7_STOP_28, F7_SB14, 6, botonPresionado == B_INICIAR);
+    return;
+  }
+#endif
   if (ensayoActivo()) boton(R_INICIAR, true, C_ROJO, C_ROJO_OSC, "DETENER", I7_STOP_28, F7_B24, 10, botonPresionado == B_INICIAR);
   else boton(R_INICIAR, true, C_AZUL, C_AZUL_OSC, "INICIAR ENSAYO", I7_PLAY_28, F7_SB21, 10, botonPresionado == B_INICIAR);
   boton(R_AJUSTES, false, C_AZUL, C_AZUL, "AJUSTES", I7_AJUSTES_28, F7_SB14, 6, botonPresionado == B_AJUSTES);
@@ -869,6 +888,9 @@ void procesarPulso(unsigned long tPulso) {
   refrescarEstado(); refrescarPanel();
 }
 
+// Pulso marcado por el tecnico con el boton PULSO (se ignora mientras la carga se estabiliza)
+void pulsoTactil(unsigned long t) { if (ensayoActivo()) procesarPulso(t); }
+
 void revisarPulsos(unsigned long ahora) {
 #if USAR_SENSOR_PULSOS
   static uint32_t vistos = 0;
@@ -876,7 +898,7 @@ void revisarPulsos(unsigned long ahora) {
   noInterrupts(); n = pulsosISR; t = tPulsoISR; interrupts();
   if (n < vistos) vistos = 0;
   while (vistos < n) { vistos++; procesarPulso(t); }
-#else
+#elif !PULSOS_TACTILES   // sin medicion real: pulsos simulados para demostracion
   static unsigned long tSim = 0;
   if (tSim == 0) tSim = ahora;
   if (ensayoActivo()) {
@@ -917,16 +939,16 @@ float segundosEnsayo() {
 }
 void enviarMedicion() {
   if (!chMedicion) return;
-  char json[256];
+  char json[320];
   snprintf(json, sizeof(json),
     "{\"v\":%.1f,\"i\":%.2f,\"p\":%.1f,\"fp\":%.2f,\"f\":%.1f,\"wh\":%.4f,\"t\":%.1f,\"sim\":%d,\"sp\":%d,"
     "\"st\":%d,\"pul\":%u,\"np\":%u,\"kc\":%u,\"err\":%.3f,\"apr\":%d,\"alm\":%u,"
-    "\"to\":%u,\"tp\":%.2f,\"av\":%u}",
+    "\"to\":%u,\"tp\":%.2f,\"av\":%u,\"pm\":%d}",
     V, I, P, FP, F, estado == LISTO ? ultimo.eref : energiaWh, segundosEnsayo(),
-    (USAR_PZEM || USAR_PLACA) ? 0 : 1, USAR_SENSOR_PULSOS ? 0 : 1, (int)estado,
+    (USAR_PZEM || USAR_PLACA) ? 0 : 1, (USAR_SENSOR_PULSOS || PULSOS_TACTILES) ? 0 : 1, (int)estado,
     (unsigned)(estado == LISTO ? ultimo.pulsos : pulsos), (unsigned)pulsosObjetivo(), (unsigned)cfgKc,
     hayResultado ? ultimo.err : 0.0, hayResultado && ultimo.aprobado ? 1 : 0, (unsigned)alarmas,
-    (unsigned)cfgTiempo, segPorPulso(), (unsigned)avisos);
+    (unsigned)cfgTiempo, segPorPulso(), (unsigned)avisos, PULSOS_TACTILES ? 1 : 0);
   chMedicion->setValue((uint8_t *)json, strlen(json));
   if (bleConectado) chMedicion->notify();
 }
@@ -934,7 +956,7 @@ void actualizarInfo() {
   if (!chInfo) return;
   char json[160];
   snprintf(json, sizeof(json), "{\"sn\":\"%s\",\"fw\":\"%s\",\"cal\":\"%s\",\"pzem\":%d,\"sens\":%d}",
-           NUMERO_SERIE, VERSION_FW, FECHA_CAL, (USAR_PZEM || USAR_PLACA) ? 1 : 0, USAR_SENSOR_PULSOS);
+           NUMERO_SERIE, VERSION_FW, FECHA_CAL, (USAR_PZEM || USAR_PLACA) ? 1 : 0, USAR_SENSOR_PULSOS ? 1 : (PULSOS_TACTILES ? 2 : 0));
   chInfo->setValue((uint8_t *)json, strlen(json));
 }
 
@@ -1033,6 +1055,13 @@ BotonId botonEn(int x, int y) {
   if (dentro(R_TOQUE_BT, x, y)) return B_BT;
   switch (pantalla) {
     case PRINCIPAL:
+#if PULSOS_TACTILES
+      if (ensayoActivo()) {
+        if (dentro(R_PULSO, x, y)) return B_PULSO;
+        if (dentro(R_DETENER_T, x, y)) return B_INICIAR;
+        break;
+      }
+#endif
       if (dentro(R_INICIAR, x, y)) return B_INICIAR;
       if (!ensayoActivo() && dentro(R_AJUSTES, x, y)) return B_AJUSTES;
       if (!ensayoActivo() && dentro(R_HIST, x, y)) return B_HISTORIAL;
@@ -1060,7 +1089,7 @@ BotonId botonEn(int x, int y) {
 // Redibuja un boton en estado normal o presionado
 void pintarBoton(BotonId b) {
   switch (b) {
-    case B_INICIAR: case B_AJUSTES: case B_HISTORIAL: refrescarBotones(); break;
+    case B_INICIAR: case B_AJUSTES: case B_HISTORIAL: case B_PULSO: refrescarBotones(); break;
     case B_BT: refrescarPildoras(); break;
     case B_KC_MENOS: case B_KC_MAS: pintar({24, 102, 752, 88}, [] { dibujarFilaAjuste(0); }); break;
     case B_NP_MENOS: case B_NP_MAS: pintar({24, 194, 752, 88}, [] { dibujarFilaAjuste(1); }); break;
@@ -1144,6 +1173,7 @@ void manejarTactil(unsigned long ahora) {
       tPresion = tRepeticion = ahora;
       pintarBoton(b);
       if (esRepetible(b)) cambiarAjuste(b);   // +/- responden al presionar
+      if (b == B_PULSO) pulsoTactil(ahora);   // el pulso cuenta al tocar, no al soltar
     } else if (botonPresionado != B_NINGUNO) {
       bajoDedo = b;
       // Mantener +/- presionado repite el cambio
@@ -1265,6 +1295,7 @@ void loop() {
       bool cambioEstab = estab != estabMostrado;
       estabMostrado = estab;
       if (estado == MIDIENDO || cambioAlarma || cambioAviso || cambioDatos || cambioEstab) refrescarEstado();
+      if (cambioEstab && PULSOS_TACTILES) refrescarBotones();   // el boton PULSO se habilita al estabilizar
       if (estado == MIDIENDO || cambioDatos) pintar(R_DATOS_ENSAYO, dibujarDatosEnsayo);
     } else {
       avisos = calcularAvisos(ahora);

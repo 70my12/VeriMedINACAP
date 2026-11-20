@@ -503,6 +503,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
   final TextEditingController _segundosMedidos = TextEditingController();
   final TextEditingController _potenciaManual = TextEditingController();
   bool _conteoManual = false; // el último ensayo guardado fue por conteo manual
+  bool _pulsosTactiles = false; // pulsos marcados con el botón PULSO de la pantalla del equipo
   Timer? _cronometro;
   DateTime? _cronoInicio;
   double _cronoSegundos = 0;
@@ -972,7 +973,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     _medidoWh = l.energiaWh;
     _medidoSegundos = l.segundos;
     _medicionSimulada = l.simulada || l.pulsosSimulados;
-    _pulsosAutomaticos = !l.pulsosSimulados;
+    _pulsosAutomaticos = !l.pulsosSimulados && !l.pulsosManuales;
+    _pulsosTactiles = l.pulsosManuales;
     _conteoManual = false;
     final now = DateTime.now();
     final error = _calculatedErrorPct;
@@ -1832,7 +1834,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                 const SizedBox(height: 6),
                 _DataRow(label: 'Referencia (V, I, P)', value: ble.lectura!.simulada ? 'Simulada' : 'Placa de medición (2 × AD71056)'),
                 const SizedBox(height: 6),
-                _DataRow(label: 'Pulsos del medidor', value: ble.lectura!.pulsosSimulados ? 'Simulados' : 'Sensor óptico'),
+                _DataRow(label: 'Pulsos del medidor', value: ble.lectura!.pulsosSimulados ? 'Simulados' : (ble.lectura!.pulsosManuales ? 'Botón PULSO en la pantalla' : 'Sensor óptico')),
                 if (ble.info != null) ...[
                   const SizedBox(height: 6),
                   _DataRow(label: 'Equipo', value: '${ble.info!.serie} · FW ${ble.info!.firmware}'),
@@ -2630,9 +2632,11 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                 ],
                 const SizedBox(height: 10),
                 Text(
-                  (l?.pulsosSimulados ?? true)
-                      ? 'Los pulsos del medidor se simulan en el equipo (aún sin sensor óptico).'
-                      : 'El sensor óptico cuenta los pulsos del LED del medidor automáticamente.',
+                  (l?.pulsosManuales ?? false)
+                      ? 'Marca cada destello del LED del medidor con el botón PULSO de la pantalla del equipo.'
+                      : (l?.pulsosSimulados ?? true)
+                          ? 'Los pulsos del medidor se simulan en el equipo (aún sin sensor óptico).'
+                          : 'El sensor óptico cuenta los pulsos del LED del medidor automáticamente.',
                   style: const TextStyle(color: VmColors.muted, fontSize: 12),
                 ),
               ],
@@ -2748,6 +2752,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     _medidoSegundos = t;
     _medicionSimulada = simulada;
     _pulsosAutomaticos = false;
+    _pulsosTactiles = false;
     _conteoManual = true;
     final error = _calculatedErrorPct;
     final record = <String, dynamic>{
@@ -2973,7 +2978,9 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
           : (_medicionSimulada ? 'ESP32 VeriMed BT por Bluetooth (datos simulados en el equipo)' : 'ESP32 VeriMed BT por Bluetooth; energía integrada en el equipo')],
       ['Conteo de pulsos', _conteoManual
           ? 'Manual: el técnico contó los pulsos del LED del medidor'
-          : (_pulsosAutomaticos ? 'Automático (sensor óptico en el LED del medidor)' : 'Simulado en el equipo (sin sensor óptico)')],
+          : (_pulsosTactiles
+              ? 'En la pantalla del equipo: el técnico marcó cada destello del LED del medidor'
+              : (_pulsosAutomaticos ? 'Automático (sensor óptico en el LED del medidor)' : 'Simulado en el equipo (sin sensor óptico)'))],
       ['Equipo VeriMed BT (serie)', _ble.info?.serie ?? 'No informado'],
       ['Firmware / calibración del equipo', _ble.info == null ? 'No informado' : 'v${_ble.info!.firmware} · calibración: ${_ble.info!.calibracion}'],
       ['Ubicación del ensayo', _captura == null

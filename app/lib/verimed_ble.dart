@@ -34,6 +34,7 @@ class VeriMedLectura {
     required this.segundos,
     required this.simulada,
     required this.pulsosSimulados,
+    this.pulsosManuales = false,
     required this.estado,
     required this.pulsos,
     required this.pulsosObjetivo,
@@ -55,6 +56,7 @@ class VeriMedLectura {
   final double segundos; // duración del ensayo
   final bool simulada; // V/I/P simulados (sin PZEM)
   final bool pulsosSimulados; // pulsos del medidor simulados (sin sensor óptico)
+  final bool pulsosManuales; // el técnico marca cada pulso con el botón PULSO de la pantalla
   final EstadoEnsayo estado;
   final int pulsos; // pulsos contados del medidor
   final int pulsosObjetivo; // N pulsos configurados
@@ -102,6 +104,7 @@ class VeriMedLectura {
       segundos: _num(j['t']),
       simulada: _int(j['sim']) == 1,
       pulsosSimulados: j.containsKey('sp') ? _int(j['sp']) == 1 : true,
+      pulsosManuales: _int(j['pm']) == 1,
       estado: EstadoEnsayo.values[st.clamp(0, 3)],
       pulsos: _int(j['pul']),
       pulsosObjetivo: _int(j['np']),
