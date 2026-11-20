@@ -25,7 +25,7 @@
 #define PULSOS_TACTILES      (!USAR_SENSOR_PULSOS && (USAR_PLACA || USAR_PZEM))
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.4.1"
+#define VERSION_FW     "2.4.2"
 #define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
@@ -461,8 +461,8 @@ void dibujarEstado() {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     float tp = segPorPulso();
     if (PULSOS_TACTILES)
-      msg = tp > 0 ? "Toca PULSO con cada destello del LED · 1 cada " + unDecimal(tp) + " s"
-                   : "Toca PULSO con cada destello del LED del medidor";
+      msg = tp > 0 ? "1er toque = inicio, luego " + String(pulsosCalculados()) + " toques más · 1 cada " + unDecimal(tp) + " s"
+                   : "Toca PULSO con cada destello: el primer toque marca el inicio";
     else
       msg = tp > 0 ? "Esperando el primer pulso · se espera 1 cada " + unDecimal(tp) + " s"
                    : "Esperando el primer pulso del LED del medidor...";
