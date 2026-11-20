@@ -24,7 +24,7 @@
 
 #define NUMERO_SERIE   "VMBT7-0001"
 #define VERSION_FW     "2.3.1"
-#define FECHA_CAL      "Sin calibrar"
+#define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
 // (4, 5, 6, 7, 15, 16, 19, 20 los usa la pantalla; RX/TX son del puerto de programacion.)

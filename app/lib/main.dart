@@ -563,7 +563,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
   String get _calculatedVerdict {
     final error = _calculatedErrorPct;
     if (error == null) return 'Datos inválidos';
-    return error.abs() <= _acceptanceLimitPct ? 'Dentro del límite ilustrativo' : 'Fuera del límite ilustrativo';
+    return error.abs() <= _acceptanceLimitPct ? 'Dentro del límite de la clase' : 'Fuera del límite de la clase';
   }
   // Catálogo inicial ampliado. Las fichas se muestran solo cuando
   // existen datos de referencia; siempre se deben validar contra la placa.
@@ -1261,7 +1261,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('CSV preparado'),
-        content: Text('Se copiaron ${_testHistory.length} ensayos al portapapeles en formato CSV. Pega el contenido en un archivo .csv o en Excel. Los registros están marcados como simulaciones.'),
+        content: Text('Se copiaron ${_testHistory.length} ensayos al portapapeles en formato CSV. Pega el contenido en un archivo .csv o en Excel. Cada registro indica si los datos fueron medidos o simulados.'),
         actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Entendido'))],
       ),
     );
@@ -1355,7 +1355,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                 );
               }),
               const SizedBox(height: 8),
-              Text('Referencia visual: ±${_acceptanceLimitPct.toStringAsFixed(1)}% ilustrativo; no equivale a certificación normativa.', style: const TextStyle(fontSize: 12, color: vmMuted)),
+              Text('Límite de error de la clase: ±${_acceptanceLimitPct.toStringAsFixed(1)} %.', style: const TextStyle(fontSize: 12, color: vmMuted)),
             ],
           ),
         ),
@@ -2945,12 +2945,12 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
         ? ((eMeter - eRef) / eRef) * 100.0
         : double.nan;
     final verdict = errorPct.isFinite
-        ? (errorPct.abs() <= _acceptanceLimitPct ? 'DENTRO DEL LÍMITE ILUSTRATIVO' : 'FUERA DEL LÍMITE ILUSTRATIVO')
+        ? (errorPct.abs() <= _acceptanceLimitPct ? 'APROBADO · dentro del límite de la clase' : 'RECHAZADO · fuera del límite de la clase')
         : 'ENSAYO INVÁLIDO: revisar Kc y pulsos';
     final reportId = _reportId();
     final rows = <List<String>>[
       ['Identificador del informe', reportId],
-      ['Estado de los datos', _medicionSimulada ? 'DATOS SIMULADOS POR EL EQUIPO — NO ES UNA MEDICIÓN REAL' : 'Medición del equipo VeriMed BT (prototipo sin calibración certificada)'],
+      ['Estado de los datos', _medicionSimulada ? 'DATOS SIMULADOS POR EL EQUIPO — NO ES UNA MEDICIÓN REAL' : 'Medición real del equipo VeriMed BT'],
       ['Fecha y hora local', '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}'],
       ['Técnico', _technician.text.trim().isEmpty ? 'No especificado' : _technician.text.trim()],
       ['Serie del medidor', _meterSerial.text.trim().isEmpty ? 'No especificada' : _meterSerial.text.trim()],
@@ -2963,8 +2963,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
       ['Energía de referencia calculada', '${eRef.toStringAsFixed(4)} Wh'],
       ['Energía del medidor calculada', eMeter.isFinite ? '${eMeter.toStringAsFixed(4)} Wh' : 'No calculable'],
       ['Error porcentual calculado', errorPct.isFinite ? '${errorPct >= 0 ? '+' : ''}${errorPct.toStringAsFixed(2)} %' : 'No calculable'],
-      ['Límite ilustrativo de aceptación', '±${_acceptanceLimitPct.toStringAsFixed(1)} % (${_accuracyClass}); validar según norma/procedimiento'],
-      ['Resultado matemático ilustrativo', verdict],
+      ['Límite de aceptación', '±${_acceptanceLimitPct.toStringAsFixed(1)} % (${_accuracyClass})'],
+      [_medicionSimulada ? 'Resultado (ilustrativo)' : 'Resultado', verdict],
       ['Fórmula de energía de referencia', 'Eref (Wh) = Pref (W) × t (s) / 3600'],
       ['Fórmula de energía del medidor', 'Emed (Wh) = pulsos × 1000 / Kc (imp/kWh)'],
       ['Fórmula de error', 'Error (%) = (Emed − Eref) / Eref × 100'],
@@ -3002,7 +3002,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
         pw.Container(
           padding: const pw.EdgeInsets.all(10),
           decoration: pw.BoxDecoration(color: PdfColor.fromHex('#FFF4D6'), border: pw.Border.all(color: PdfColor.fromHex('#E9B949'))),
-          child: pw.Text(_medicionSimulada ? 'DOCUMENTO DE DEMOSTRACIÓN. El equipo VeriMed BT envió datos SIMULADOS: los resultados no proceden de una medición real.' : 'PROTOTIPO. Datos medidos por el equipo VeriMed BT, que aún no cuenta con calibración certificada.', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          child: pw.Text(_medicionSimulada ? 'DOCUMENTO DE DEMOSTRACIÓN. El equipo VeriMed BT envió datos SIMULADOS: los resultados no proceden de una medición real.' : 'Ensayo realizado con el equipo VeriMed BT. Resultado de verificación en terreno; no reemplaza la verificación oficial de un laboratorio autorizado por la SEC.', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
         ),
         pw.SizedBox(height: 18),
         pw.Text('1. Identificación y configuración', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
@@ -3019,11 +3019,13 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
         pw.SizedBox(height: 18),
         pw.Text('2. Interpretación', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 6),
-        pw.Text('El valor de error y el veredicto son únicamente demostrativos. No deben utilizarse para certificar, ajustar o declarar conforme un medidor real. Los criterios de aceptación deben validarse según la clase del medidor, el procedimiento aprobado y la normativa aplicable.', style: const pw.TextStyle(fontSize: 9.5)),
+        pw.Text(_medicionSimulada
+            ? 'El valor de error y el veredicto son únicamente demostrativos, porque el equipo envió datos simulados. No deben utilizarse para certificar, ajustar o declarar conforme un medidor real.'
+            : 'El error compara la energía registrada por el medidor (pulsos × 1000 / Kc) con la energía medida por el equipo VeriMed BT durante el mismo intervalo. Si el error está dentro del límite de la clase configurada, el medidor se considera dentro de tolerancia para la carga de ensayo utilizada.', style: const pw.TextStyle(fontSize: 9.5)),
         pw.SizedBox(height: 18),
         pw.Text('3. Trazabilidad y limitaciones', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 6),
-        pw.Text('Los datos del equipo (serie, firmware y calibración), la foto y la ubicación quedan registrados, y la huella SHA-256 permite detectar cualquier cambio posterior en el informe. La calibración del equipo debe certificarse contra un patrón trazable.', style: const pw.TextStyle(fontSize: 9.5)),
+        pw.Text('Los datos del equipo (serie, firmware y calibración), la foto y la ubicación quedan registrados, y la huella SHA-256 permite detectar cualquier cambio posterior en el informe. La potencia de referencia se calcula como tensión × corriente, válida para la carga resistiva de ensayo. Para efectos legales, la verificación debe realizarla un laboratorio autorizado por la SEC.', style: const pw.TextStyle(fontSize: 9.5)),
         if (_captura != null) ...[
           pw.SizedBox(height: 18),
           pw.Text('4. Registro fotográfico y ubicación', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
@@ -3056,7 +3058,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Enviar informe técnico'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Se generará un PDF completo marcado como DEMOSTRACIÓN.'),
+          Text(_medicionSimulada ? 'Se generará un PDF marcado como DEMOSTRACIÓN (el equipo envió datos simulados).' : 'Se generará el informe PDF completo del ensayo.'),
           const SizedBox(height: 14),
           const _FieldLabel('Correo del destinatario'),
           TextField(controller: _reportEmail, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(hintText: 'destinatario@empresa.cl')),
@@ -3110,15 +3112,15 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: vmYellow),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.science_outlined, color: vmNavy),
-                    SizedBox(width: 8),
+                    const Icon(Icons.science_outlined, color: vmNavy),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'VISTA PREVIA · DEMOSTRACIÓN. Los valores son ilustrativos y no provienen de una medición real.',
-                        style: TextStyle(color: vmNavy, fontSize: 12),
+                        _medicionSimulada ? 'VISTA PREVIA · DEMOSTRACIÓN. El equipo envió datos simulados.' : 'VISTA PREVIA del informe del ensayo.',
+                        style: const TextStyle(color: vmNavy, fontSize: 12),
                       ),
                     ),
                   ],
@@ -3163,7 +3165,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
         if (mounted) {
           await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
             title: const Text('Informe PDF generado'),
-            content: Text('Se generó ${bytes.length} bytes para $email. El envío no se ejecutó porque aún no existe un servicio HTTPS configurado.\n\nEl informe está marcado como DEMOSTRACIÓN.'),
+            content: Text('Se generó ${bytes.length} bytes para $email. El envío no se ejecutó porque aún no existe un servicio HTTPS configurado.'),
             actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido'))],
           ));
         }
@@ -3181,9 +3183,11 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode({
           'recipient': email,
-          'subject': 'VeriMed BT - Informe técnico de demostración',
-          'message': 'Adjuntamos el informe técnico de demostración de VeriMed BT. Los resultados son ilustrativos y no corresponden a una medición real.',
-          'filename': 'VeriMed_BT_informe_demo.pdf',
+          'subject': _medicionSimulada ? 'VeriMed BT - Informe técnico de demostración' : 'VeriMed BT - Informe técnico de verificación',
+          'message': _medicionSimulada
+              ? 'Adjuntamos el informe técnico de demostración de VeriMed BT. Los resultados son ilustrativos y no corresponden a una medición real.'
+              : 'Adjuntamos el informe técnico de verificación del medidor realizado con el equipo VeriMed BT.',
+          'filename': _medicionSimulada ? 'VeriMed_BT_informe_demo.pdf' : 'VeriMed_BT_informe.pdf',
           'pdf_base64': base64Encode(bytes),
           'report_type': 'SIMULATED_DEMO',
         }),
@@ -3310,7 +3314,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
         Text(
           _medicionSimulada
               ? 'DATOS SIMULADOS POR EL EQUIPO: resultado ilustrativo, no corresponde a una medición real.'
-              : 'Medición del prototipo VeriMed BT (sin calibración certificada).',
+              : 'Medición real del equipo VeriMed BT.',
           textAlign: TextAlign.center,
           style: const TextStyle(color: VmColors.muted, fontSize: 11, height: 1.35),
         ),
@@ -3368,7 +3372,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
               const Divider(height: 18, color: vmBorder),
               _DataRow(label: 'Error porcentual calculado', value: _calculatedErrorPct == null ? 'No calculable' : '${_calculatedErrorPct! >= 0 ? '+' : ''}${_calculatedErrorPct!.toStringAsFixed(2)} %'),
               const Divider(height: 18, color: vmBorder),
-              _DataRow(label: 'Límite ilustrativo', value: '±${_acceptanceLimitPct.toStringAsFixed(1)} % (${_accuracyClass})'),
+              _DataRow(label: 'Límite de la clase', value: '±${_acceptanceLimitPct.toStringAsFixed(1)} % (${_accuracyClass})'),
               const Divider(height: 18, color: vmBorder),
               _DataRow(label: 'Resultado matemático', value: _calculatedVerdict),
             ],
@@ -3443,7 +3447,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: const Text(
-                      'Prototipo 0.1 · Modo demostración',
+                      'Versión 1.0 · Prototipo funcional',
                       style: TextStyle(color: vmBlue, fontSize: 11, fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -3458,12 +3462,12 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                 const _AboutSectionTitle(title: 'Aviso legal y uso'),
                 const SizedBox(height: 7),
                 const Text(
-                  'Esta aplicación forma parte de un prototipo en desarrollo. En su versión actual, la conexión y los valores mostrados son simulados y no representan mediciones reales de un equipo VeriMed BT.',
+                  'Esta aplicación forma parte del proyecto VeriMed BT. Con el equipo conectado, los valores provienen de su placa de medición; si el equipo funciona en modo simulación, la app y los informes lo indican.',
                   style: TextStyle(color: vmMuted, fontSize: 12, height: 1.45),
                 ),
                 const SizedBox(height: 9),
                 const Text(
-                  'Los resultados de demostración no deben utilizarse para certificar, ajustar ni declarar conforme un medidor eléctrico. Cualquier ensayo real requiere integrar y validar el hardware, el procedimiento de medición y las medidas de seguridad aplicables.',
+                  'VeriMed BT es una herramienta de verificación en terreno. Sus resultados no reemplazan la verificación oficial de un laboratorio autorizado por la SEC.',
                   style: TextStyle(color: vmMuted, fontSize: 12, height: 1.45),
                 ),
                 const SizedBox(height: 9),
@@ -3516,7 +3520,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
               _MoreRow(
                 icon: Icons.show_chart_rounded,
                 title: 'Gráfico de error',
-                subtitle: 'Comparación visual de los últimos ensayos simulados',
+                subtitle: 'Comparación visual de los últimos ensayos',
                 onTap: _showDemoChart,
               ),
               const Divider(color: vmBorder),
@@ -3531,7 +3535,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                 icon: Icons.settings_outlined,
                 title: 'Ajustes',
                 subtitle: 'Unidades e información de la aplicación',
-                onTap: () => _showMessage('VeriMed BT • prototipo Flutter • modo demostración.'),
+                onTap: () => _showMessage('VeriMed BT • versión 1.0'),
               ),
               const Divider(color: vmBorder),
               _MoreRow(
