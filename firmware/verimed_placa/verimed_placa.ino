@@ -3,9 +3,9 @@
 // =====================================================================
 //  Arduino IDE -> Herramientas -> Placa: "ESP32 Dev Module". Sin librerias extra.
 //
-//  Pines y canales verificados en la placa real (prueba con carga ON/OFF, 17-11-2026):
-//    GPIO21 <- CF del AD71056 de TENSION   (frecuencia ~ V^2, no cambia con la carga)
-//    GPIO19 <- CF del AD71056 de CORRIENTE (frecuencia ~ I^2, 0 Hz con la carga apagada)
+//  Pines y canales verificados en la placa real (codigo de prueba "Contrastador"):
+//    GPIO19 <- CF del AD71056 de TENSION   (frecuencia ~ V^2)   pull-up 10k en la placa
+//    GPIO21 <- CF del AD71056 de CORRIENTE (frecuencia ~ I^2)   pull-up 10k en la placa
 //    GPIO18 -> rele de la carga (HIGH = carga conectada)
 //    GPIO17 = TX -> J3 pin 2 -> pantalla J2 "18"
 //    GPIO16 = RX <- J3 pin 3 <- pantalla J2 "17"
@@ -126,6 +126,8 @@ void calibrar(char canal, float real) {
   if (!rele) { Serial.println("Activa la carga (1) y espera 4 s antes de calibrar."); return; }
   float f = (canal == 'v') ? fV : fI;
   if (f <= 0 || real <= 0) { Serial.println("No llegan pulsos en ese canal o el valor es invalido."); return; }
+  if (millis() - tReleOn < 6000) { Serial.println("Espera 6 s con la carga encendida: la frecuencia aun no es estable."); return; }
+  if (f < 1.0) { Serial.printf("Frecuencia muy baja (%.3f Hz): revisa que la carga este conectada y vuelve a intentar.\n", f); return; }
   bool cuad = (canal == 'v') ? CUADRATICO_V : CUADRATICO_I;
   float K = cuad ? (real * real / f) : (real / f);
   if (canal == 'v') { KV = K; prefs.putFloat("KV", KV); }
