@@ -25,7 +25,7 @@
 #define PULSOS_TACTILES      (!USAR_SENSOR_PULSOS && (USAR_PLACA || USAR_PZEM))
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.4.2"
+#define VERSION_FW     "2.4.3"
 #define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
@@ -900,7 +900,18 @@ void procesarPulso(unsigned long tPulso) {
 }
 
 // Pulso marcado por el tecnico con el boton PULSO (se ignora mientras la carga se estabiliza)
-void pulsoTactil(unsigned long t) { if (ensayoActivo()) procesarPulso(t); }
+void pulsoTactil(unsigned long t) {
+  if (!ensayoActivo()) return;
+  // Antirrebote: un doble toque sobre el mismo destello no cuenta como dos pulsos.
+  // Se ignora todo toque que llegue antes del 50 % del tiempo esperado entre pulsos (minimo 0,4 s).
+  if (estado == MIDIENDO) {
+    float tp = segPorPulso();
+    unsigned long minimo = tp > 0 ? (unsigned long)(tp * 500.0f) : 400;
+    if (minimo < 400) minimo = 400;
+    if (t - tUltPulso < minimo) return;
+  }
+  procesarPulso(t);
+}
 
 void revisarPulsos(unsigned long ahora) {
 #if USAR_SENSOR_PULSOS
