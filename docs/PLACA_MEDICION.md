@@ -83,3 +83,23 @@ Las constantes se guardan en Preferences `contrastador` (claves `KV`, `KI`), com
 - S0, S1 y SCF de ambos AD71056 están unidos solo a condensadores de 10 nF (quedan al aire): conectarlos a VDD o GND, igual en los dos chips.
 - Verificar que R7 / R29 (divisor de tensión) sean de 10 MΩ y no de 1 MΩ.
 - Seguridad: programar sin 220 V conectados. El lado del AD71056 está vivo (GND_1 = fase).
+
+## Calibración del 22-11-2026 (vigente)
+
+Carga: resistencia de pistola de calor con ventilador (≈ 48,9 Ω, ≈ 1 kW). Medidor de comparación: medidor nuevo clase 1, Kc 1.600 imp/kWh.
+
+| Paso | Corriente calibrada | Error del ensayo con el medidor nuevo |
+|---|---|---|
+| Calibración inicial con UT201 | 4,46 A | +4,49 % (60 s) |
+| Recalibración con UT201 (216 V / 4,69 A) | 4,69 A | +2,80 % |
+| Ajuste por comparación (+2,8 %) | 4,82 A | −1,49 %, −1,47 %, −1,30 % (60 s) |
+| Ajuste final (−1,42 % promedio) | **4,75 A** | **+0,10 % (60 s), +0,30 % (15 s)** |
+
+- Tensión calibrada con el UNI-T UT201.
+- La corriente se ajustó por comparación con el medidor nuevo porque el UT201 es de respuesta media (no true RMS)
+  y la corriente de la carga no es sinusoidal (motor del ventilador): con esa carga el UT201 marca de menos.
+- Ese medidor queda como referencia; para demostrar la exactitud de VeriMed se usa otro medidor.
+- Mejora futura: recalibrar con un instrumento true RMS de 0,5 % o mejor (analizador de energía).
+- La placa no acepta `cv`/`ci` si la carga lleva menos de 6 s encendida o si la frecuencia es < 1 Hz
+  (un `ci` escrito antes de tiempo con fI = 0,17 Hz dejó la corriente 6,8 veces más alta).
+- La pantalla ignora dobles toques del botón PULSO (antes de la mitad del tiempo esperado entre pulsos).
