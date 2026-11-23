@@ -2668,10 +2668,10 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
               backgroundColor: vmBlue,
             ),
           ),
-        if (!_testRunning) ...[
-          const SizedBox(height: 16),
-          _panelConteoManual(),
-        ],
+        // El conteo manual también se usa con el ensayo iniciado: así el equipo
+        // conecta la carga y el técnico mide con el cronómetro de la app.
+        const SizedBox(height: 16),
+        _panelConteoManual(),
         const SizedBox(height: 12),
         const _DemoNotice(),
       ],
@@ -2786,6 +2786,16 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
       _selectedTab = 3;
     });
     _saveHistory();
+    // Si el ensayo del equipo estaba abierto solo para conectar la carga, se cierra sin guardar en el equipo.
+    if (_testRunning && _connected) {
+      _sinSyncHasta = DateTime.now().add(const Duration(seconds: 2));
+      setState(() => _testRunning = false);
+      () async {
+        try {
+          await _ble.enviarComando('DETENER');
+        } catch (_) {}
+      }();
+    }
     final txt = error == null ? '' : ' (${error >= 0 ? '+' : ''}${error.toStringAsFixed(2)} %)';
     _showMessage('Ensayo manual guardado: ${error != null && error.abs() <= _acceptanceLimitPct ? 'dentro del límite' : 'fuera del límite'}$txt.');
   }
@@ -2815,6 +2825,23 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
             'Para verificar sin sensor óptico: cuenta los pulsos del LED del medidor y mide el tiempo.',
             style: TextStyle(color: vmMuted, fontSize: 12),
           ),
+          if (_connected) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _testRunning ? VmColors.greenSoft : VmColors.amberSoft,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                _testRunning
+                    ? 'La carga está conectada. Usa este cronómetro en vez del botón PULSO de la pantalla; al guardar, la app detiene el ensayo y desconecta la carga.'
+                    : 'Paso 1: toca "Iniciar ensayo" (arriba) para que el equipo conecte la carga. Paso 2: espera 5 s y usa este cronómetro.',
+                style: TextStyle(color: _testRunning ? VmColors.green : VmColors.amberInk, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           if (!potenciaEquipo) ...[
             const _FieldLabel('Potencia de la carga de ensayo'),
