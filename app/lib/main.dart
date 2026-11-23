@@ -2999,7 +2999,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
       [_medicionSimulada ? 'Resultado (ilustrativo)' : 'Resultado', verdict],
       ['Fórmula de energía de referencia', 'Eref (Wh) = Pref (W) × t (s) / 3600'],
       ['Fórmula de energía del medidor', 'Emed (Wh) = pulsos × 1000 / Kc (imp/kWh)'],
-      ['Fórmula de error', 'Error (%) = (Emed − Eref) / Eref × 100'],
+      ['Fórmula de error', 'Error (%) = (Emed - Eref) / Eref × 100'],
       ['Método de medición', _conteoManual
           ? 'Conteo manual con cronómetro; Eref = potencia de referencia × tiempo medido'
           : (_medicionSimulada ? 'ESP32 VeriMed BT por Bluetooth (datos simulados en el equipo)' : 'ESP32 VeriMed BT por Bluetooth; energía integrada en el equipo')],
