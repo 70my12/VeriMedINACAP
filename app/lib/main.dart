@@ -314,6 +314,7 @@ class _VeriMedLoginScreenState extends State<VeriMedLoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _nombre = TextEditingController();
   bool _isRegister = false;
   bool _showPassword = false;
   bool _busy = false;
@@ -323,6 +324,7 @@ class _VeriMedLoginScreenState extends State<VeriMedLoginScreen> {
   void dispose() {
     _email.dispose();
     _password.dispose();
+    _nombre.dispose();
     super.dispose();
   }
 
@@ -355,6 +357,7 @@ class _VeriMedLoginScreenState extends State<VeriMedLoginScreen> {
           email: _email.text.trim(),
           password: _password.text,
         );
+        await credential.user?.updateDisplayName(_nombre.text.trim());
         await credential.user?.sendEmailVerification();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cuenta creada. Enviamos un correo para verificar tu dirección.')));
@@ -412,6 +415,18 @@ class _VeriMedLoginScreenState extends State<VeriMedLoginScreen> {
                     const SizedBox(height: 8),
                     Text(_isRegister ? 'Regístrate para comenzar a utilizar la aplicación.' : 'Inicia sesión para acceder a tus herramientas de verificación.', style: const TextStyle(color: vmMuted, height: 1.4), textAlign: TextAlign.center),
                     const SizedBox(height: 28),
+                    if (_isRegister) ...[
+                      const _FieldLabel('Nombre y apellido'),
+                      TextFormField(
+                        controller: _nombre,
+                        textCapitalization: TextCapitalization.words,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.name],
+                        decoration: const InputDecoration(hintText: 'Ej.: Tomás Quezada', prefixIcon: Icon(Icons.person_outline_rounded)),
+                        validator: (value) => (value ?? '').trim().length < 3 ? 'Ingresa tu nombre.' : null,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     const _FieldLabel('Correo electrónico'),
                     TextFormField(
                       controller: _email,
@@ -499,19 +514,10 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
   // Conteo manual: el técnico cuenta los pulsos del LED y mide el tiempo con el cronómetro.
   //   Tiempo esperado  t_esp = N × 3.600.000 / (Kc × P)
   //   Error (%)        = (t_esp / t_medido − 1) × 100   (equivale a (Emed − Eref) / Eref)
-  final TextEditingController _pulsosContados = TextEditingController();
-  final TextEditingController _segundosMedidos = TextEditingController();
-  final TextEditingController _potenciaManual = TextEditingController();
   bool _conteoManual = false; // el último ensayo guardado fue por conteo manual
   bool _pulsosTactiles = false; // pulsos marcados con el botón PULSO de la pantalla del equipo
   bool _dosToques = false; // INICIO en un destello y FIN en el destello N (firmware 2.5+)
   int _destellosInferidos = 0; // >0: el tiempo no coincide con N destellos (revisar)
-  Timer? _cronometro;
-  DateTime? _cronoInicio;
-  double _cronoSegundos = 0;
-  double _cronoSumaP = 0;
-  int _cronoMuestrasP = 0;
-  double? _cronoPotenciaMedia; // potencia media del equipo durante el cronómetro
   final TextEditingController _technician = TextEditingController();
   final TextEditingController _reportEmail = TextEditingController();
   bool _sendingReport = false;
@@ -741,9 +747,68 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     },
   };
 
+  /// Nombre del técnico de la sesión (cuenta de Firebase).
+  String get _nombreSesion => (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+
+  /// Pide el nombre a una cuenta que no lo tiene (creada antes de este cambio) o para cambiarlo.
+  Future<void> _pedirNombre({bool obligatorio = false}) async {
+    final ctrl = TextEditingController(text: _nombreSesion);
+    final nombre = await showDialog<String>(
+      context: context,
+      barrierDismissible: !obligatorio,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Cómo te llamas?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tu nombre aparece en el inicio y como técnico en los informes.', style: TextStyle(color: vmMuted, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(hintText: 'Nombre y apellido'),
+              onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+            ),
+          ],
+        ),
+        actions: [
+          if (!obligatorio) TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (nombre == null || nombre.length < 3) return;
+    try {
+      await FirebaseAuth.instance.currentUser?.updateDisplayName(nombre);
+      await FirebaseAuth.instance.currentUser?.reload();
+    } catch (_) {
+      _showMessage('No se pudo guardar el nombre. Revisa la conexión a internet.');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _technician.text = nombre);
+  }
+
+  String _saludoFecha() {
+    const dias = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    final d = DateTime.now();
+    return '${dias[d.weekday - 1]} ${d.day} ${meses[d.month - 1]}';
+  }
+
   @override
   void initState() {
     super.initState();
+    // El técnico de la sesión rellena el campo del ensayo; si la cuenta no tiene nombre, se pide una vez.
+    if (_nombreSesion.isNotEmpty) {
+      _technician.text = _nombreSesion;
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && FirebaseAuth.instance.currentUser != null && _nombreSesion.isEmpty) _pedirNombre(obligatorio: true);
+      });
+    }
     _loadHistory();
     _cargarKcPersonalizadas();
     _ble.alPerderConexion = _alPerderConexion;
@@ -922,10 +987,6 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     _meterSerial.dispose();
     _kc.dispose();
     _pulseCount.dispose();
-    _pulsosContados.dispose();
-    _segundosMedidos.dispose();
-    _potenciaManual.dispose();
-    _cronometro?.cancel();
     _technician.dispose();
     _reportEmail.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -1502,8 +1563,17 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                     context: context,
                     builder: (dialogContext) => AlertDialog(
                       title: const Text('Cuenta de VeriMed BT'),
-                      content: Text('Sesión iniciada como\n$email'),
-                      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cerrar'))],
+                      content: Text('${_nombreSesion.isEmpty ? '' : '$_nombreSesion\n'}Sesión iniciada como\n$email'),
+                      actions: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _pedirNombre();
+                          },
+                          child: const Text('Cambiar nombre'),
+                        ),
+                        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cerrar')),
+                      ],
                     ),
                   );
                 } else if (value == 'logout') {
@@ -1636,6 +1706,21 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                GestureDetector(
+                  onTap: () => _pedirNombre(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _nombreSesion.isEmpty ? 'Hola 👋' : 'Hola, ${_nombreSesion.split(' ').first} 👋',
+                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text('Técnico · ${_saludoFecha()}', style: const TextStyle(color: VmColors.onNavyMuted, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
                 Row(
                   children: [
                     AnimatedContainer(
@@ -1766,11 +1851,14 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                       const SizedBox(width: 10),
                       Expanded(
                         child: VmQuickAction(
-                          icon: Icons.timer_outlined,
-                          label: 'Conteo manual',
+                          icon: _connected ? Icons.bluetooth_connected_rounded : Icons.bluetooth_searching_rounded,
+                          label: _connected ? 'Equipo' : 'Conectar BLE',
                           fondo: VmColors.amberSoft,
                           color: VmColors.amberInk,
-                          onTap: () => setState(() => _selectedTab = 2),
+                          onTap: () {
+                            setState(() => _selectedTab = 1);
+                            if (!_connected && !_ble.buscando && !_ble.conectando) _ble.buscar();
+                          },
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -2739,6 +2827,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                     dato('Potencia', l == null ? '—' : '${vmMiles(l.potencia)} W'),
                     const SizedBox(width: 10),
                     dato('Tensión', l == null ? '—' : '${vmComa(l.tension, 1)} V'),
+                    const SizedBox(width: 10),
+                    dato('Corriente', (l == null || l.corriente <= 0) ? '—' : '${vmComa(l.corriente, 2)} A'),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -2853,298 +2943,9 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
               backgroundColor: vmBlue,
             ),
           ),
-        // El conteo manual también se usa con el ensayo iniciado: así el equipo
-        // conecta la carga y el técnico mide con el cronómetro de la app.
-        const SizedBox(height: 16),
-        _panelConteoManual(),
         const SizedBox(height: 12),
         const _DemoNotice(),
       ],
-    );
-  }
-
-  // ------------------------- Conteo manual -------------------------
-  /// Potencia de referencia: la del equipo si está conectado; si no, la que ingresa el técnico.
-  double? get _potenciaReferenciaManual {
-    if (_cronoPotenciaMedia != null) return _cronoPotenciaMedia;
-    final l = _connected ? _ble.lectura : null;
-    if (l != null && l.potencia >= 5) return l.potencia;
-    return double.tryParse(_potenciaManual.text.trim().replaceAll(',', '.'));
-  }
-
-  /// Pulsos que conviene contar: según la duración elegida (o los pulsos manuales).
-  int? get _pulsosSugeridos {
-    final p = _potenciaReferenciaManual;
-    if (_tiempoObjetivo == 0) return _pulseValue;
-    if (p == null) return null;
-    return _pulsosCalculados(p);
-  }
-
-  /// Error con lo que ingresó el técnico (null si falta un dato).
-  ({double esperado, double error})? get _resultadoManual {
-    final kc = _kcValue;
-    final p = _potenciaReferenciaManual;
-    final n = int.tryParse(_pulsosContados.text.trim());
-    final t = double.tryParse(_segundosMedidos.text.trim().replaceAll(',', '.'));
-    if (kc == null || kc <= 0 || p == null || p < 5 || n == null || n <= 0 || t == null || t <= 0) return null;
-    final esperado = n * 3600000.0 / (kc * p);
-    return (esperado: esperado, error: (esperado / t - 1) * 100);
-  }
-
-  void _cronoAlternar() {
-    if (_cronometro != null) {
-      // Detener en el último pulso
-      _cronometro!.cancel();
-      _cronometro = null;
-      setState(() {
-        _cronoPotenciaMedia = _cronoMuestrasP > 0 ? _cronoSumaP / _cronoMuestrasP : null;
-        _segundosMedidos.text = _cronoSegundos.toStringAsFixed(2);
-      });
-      return;
-    }
-    // Iniciar en el primer pulso
-    final sugeridos = _pulsosSugeridos;
-    if (_pulsosContados.text.trim().isEmpty && sugeridos != null) _pulsosContados.text = '$sugeridos';
-    _cronoInicio = DateTime.now();
-    _cronoSegundos = 0;
-    _cronoSumaP = 0;
-    _cronoMuestrasP = 0;
-    _cronoPotenciaMedia = null;
-    _cronometro = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      final l = _connected ? _ble.lectura : null;
-      if (l != null && l.potencia >= 5) {
-        _cronoSumaP += l.potencia;
-        _cronoMuestrasP++;
-      }
-      if (mounted) setState(() => _cronoSegundos = DateTime.now().difference(_cronoInicio!).inMilliseconds / 1000.0);
-    });
-    setState(() {});
-  }
-
-  void _guardarResultadoManual() {
-    final res = _resultadoManual;
-    final p = _potenciaReferenciaManual;
-    if (res == null || p == null) {
-      _showMessage('Completa la Kc, la potencia, los pulsos contados y los segundos medidos.');
-      return;
-    }
-    final n = int.parse(_pulsosContados.text.trim());
-    final t = double.parse(_segundosMedidos.text.trim().replaceAll(',', '.'));
-    final desdeEquipo = _connected && _ble.lectura != null && (_cronoPotenciaMedia != null || _ble.lectura!.potencia >= 5);
-    final simulada = desdeEquipo && (_ble.lectura?.simulada ?? false);
-    _pulseCount.text = '$n';
-    _medidoWh = p * t / 3600.0;
-    _medidoSegundos = t;
-    _medicionSimulada = simulada;
-    _pulsosAutomaticos = false;
-    _pulsosTactiles = false;
-    _dosToques = false;
-    _destellosInferidos = 0;
-    _conteoManual = true;
-    final error = _calculatedErrorPct;
-    final record = <String, dynamic>{
-      'id': _reportId(),
-      'date': DateTime.now(),
-      'serial': _meterSerial.text.trim().isEmpty ? 'No especificado' : _meterSerial.text.trim(),
-      'model': _selectedMeterModel.isEmpty ? 'No especificado' : _selectedMeterModel,
-      'technician': _technician.text.trim().isEmpty ? 'No especificado' : _technician.text.trim(),
-      'kc': _kcValue,
-      'pulses': n,
-      'referenceWh': _referenceEnergyWh,
-      'meterWh': _meterEnergyWh,
-      'errorPct': error,
-      'class': _accuracyClass,
-      'verdict': _calculatedVerdict,
-      'mode': simulada
-          ? 'MANUAL · CRONÓMETRO · POTENCIA SIMULADA'
-          : (desdeEquipo ? 'MANUAL · CRONÓMETRO · POTENCIA DEL EQUIPO' : 'MANUAL · CRONÓMETRO · POTENCIA INGRESADA'),
-      'durationSeconds': t,
-      'deviceSerial': desdeEquipo ? (_ble.info?.serie ?? 'No informado') : 'Sin equipo',
-      'firmware': desdeEquipo ? (_ble.info?.firmware ?? 'No informado') : '—',
-      ...?_captura?.aRegistro(),
-    };
-    setState(() {
-      _testHistory.insert(0, record);
-      _testFinished = true;
-      _lastTestDurationSeconds = t;
-      _cronoPotenciaMedia = null;
-      _pulsosContados.clear();
-      _segundosMedidos.clear();
-      _selectedTab = 3;
-    });
-    _saveHistory();
-    // Si el ensayo del equipo estaba abierto solo para conectar la carga, se cierra sin guardar en el equipo.
-    if (_testRunning && _connected) {
-      _sinSyncHasta = DateTime.now().add(const Duration(seconds: 2));
-      setState(() => _testRunning = false);
-      () async {
-        try {
-          await _ble.enviarComando('DETENER');
-        } catch (_) {}
-      }();
-    }
-    final txt = error == null ? '' : ' (${error >= 0 ? '+' : ''}${error.toStringAsFixed(2)} %)';
-    _showMessage('Ensayo manual guardado: ${error != null && error.abs() <= _acceptanceLimitPct ? 'dentro del límite' : 'fuera del límite'}$txt.');
-  }
-
-  Widget _panelConteoManual() {
-    final l = _connected ? _ble.lectura : null;
-    final potenciaEquipo = l != null && l.potencia >= 5;
-    final p = _potenciaReferenciaManual;
-    final tp = p == null ? null : _segPorPulso(p);
-    final sugeridos = _pulsosSugeridos;
-    final corriendo = _cronometro != null;
-    final res = _resultadoManual;
-    final limite = _acceptanceLimitPct;
-    return _Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.timer_outlined, color: vmBlue),
-              SizedBox(width: 8),
-              Expanded(child: Text('Conteo manual con cronómetro', style: TextStyle(fontWeight: FontWeight.w700))),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Para verificar sin sensor óptico: cuenta los pulsos del LED del medidor y mide el tiempo.',
-            style: TextStyle(color: vmMuted, fontSize: 12),
-          ),
-          if (_connected) ...[
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: _testRunning ? VmColors.greenSoft : VmColors.amberSoft,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                _testRunning
-                    ? 'La carga está conectada. Usa este cronómetro en vez del botón PULSO de la pantalla; al guardar, la app detiene el ensayo y desconecta la carga.'
-                    : 'Paso 1: toca "Iniciar ensayo" (arriba) para que el equipo conecte la carga. Paso 2: espera 5 s y usa este cronómetro.',
-                style: TextStyle(color: _testRunning ? VmColors.green : VmColors.amberInk, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (!potenciaEquipo) ...[
-            const _FieldLabel('Potencia de la carga de ensayo'),
-            TextField(
-              controller: _potenciaManual,
-              onChanged: (_) => setState(() {}),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(suffixText: 'W', hintText: '1000'),
-            ),
-            const SizedBox(height: 4),
-            const Text('Sin equipo conectado: usa la potencia medida con una pinza o la de una carga resistiva conocida.',
-                style: TextStyle(color: vmMuted, fontSize: 11)),
-            const SizedBox(height: 10),
-          ],
-          // Lo que debe contar el técnico
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: vmBackground, borderRadius: BorderRadius.circular(12)),
-            child: (p == null || tp == null || sugeridos == null)
-                ? const Text('Ingresa la Kc y la potencia para saber cuántos pulsos contar.', style: TextStyle(color: vmMuted))
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Cuenta $sugeridos pulsos', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: vmInk)),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Con ${p.toStringAsFixed(0)} W el medidor debería dar 1 pulso cada ${_unDecimal(tp)} s: '
-                        '$sugeridos pulsos en ${_unDecimal(sugeridos * tp)} s.',
-                        style: const TextStyle(color: vmInk, fontSize: 13),
-                      ),
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 12),
-          // Cronómetro
-          Center(
-            child: Text(
-              '${_cronoSegundos.toStringAsFixed(1).replaceAll('.', ',')} s',
-              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: vmInk, fontFeatures: [FontFeature.tabularFigures()]),
-            ),
-          ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: _cronoAlternar,
-            icon: Icon(corriendo ? Icons.stop_rounded : Icons.play_arrow_rounded),
-            label: Text(corriendo ? 'Detener en el último pulso' : 'Iniciar en el primer pulso'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-              backgroundColor: corriendo ? vmRed : vmBlue,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Toca Iniciar justo cuando parpadea el LED (pulso 0) y Detener cuando parpadea el último pulso.',
-            style: TextStyle(color: vmMuted, fontSize: 11),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _FieldLabel('Pulsos contados'),
-                    TextField(
-                      controller: _pulsosContados,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(hintText: sugeridos == null ? '6' : '$sugeridos'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _FieldLabel('Segundos medidos'),
-                    TextField(
-                      controller: _segundosMedidos,
-                      onChanged: (_) => setState(() => _cronoPotenciaMedia = null),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(suffixText: 's', hintText: '13,5'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (res != null) ...[
-            const SizedBox(height: 12),
-            _DataRow(label: 'Tiempo esperado', value: '${_unDecimal(res.esperado)} s'),
-            const SizedBox(height: 6),
-            _DataRow(
-              label: 'Error del medidor',
-              value: '${res.error >= 0 ? '+' : ''}${res.error.toStringAsFixed(2)} % · ${res.error.abs() <= limite ? 'dentro' : 'fuera'} de ±${limite.toStringAsFixed(0)} %',
-            ),
-            const SizedBox(height: 4),
-            Text(
-              res.error < 0
-                  ? 'El medidor tardó más de lo esperado: registra menos energía (a favor del cliente).'
-                  : 'El medidor fue más rápido de lo esperado: registra más energía (en contra del cliente).',
-              style: const TextStyle(color: vmMuted, fontSize: 11),
-            ),
-          ],
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: (res == null || corriendo) ? null : _guardarResultadoManual,
-            icon: const Icon(Icons.save_alt_rounded),
-            label: const Text('Guardar ensayo manual'),
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-          ),
-        ],
-      ),
     );
   }
 
