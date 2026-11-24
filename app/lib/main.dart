@@ -528,6 +528,104 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
 
   double? get _kcValue => double.tryParse(_kc.text.trim().replaceAll(',', '.'));
 
+  // Constantes Kc frecuentes en medidores monofásicos, más las que agrega el técnico.
+  static const List<int> _kcPredefinidas = [500, 800, 1000, 1200, 1600, 2000, 3200, 4000, 6400];
+  final List<int> _kcPersonalizadas = [];
+
+  Future<void> _cargarKcPersonalizadas() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lista = prefs.getStringList('verimed_kc_personalizadas') ?? const [];
+      if (!mounted) return;
+      setState(() {
+        _kcPersonalizadas
+          ..clear()
+          ..addAll(lista.map(int.tryParse).whereType<int>());
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _guardarKcPersonalizadas() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('verimed_kc_personalizadas', _kcPersonalizadas.map((k) => '$k').toList());
+    } catch (_) {}
+  }
+
+  Future<void> _agregarKc() async {
+    final ctrl = TextEditingController();
+    final kc = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Agregar Kc'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(suffixText: 'imp/kWh', hintText: 'Ej.: 2500'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(int.tryParse(v.trim())),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(int.tryParse(ctrl.text.trim())), child: const Text('Agregar')),
+        ],
+      ),
+    );
+    if (kc == null) return;
+    if (kc < 10 || kc > 100000) {
+      _showMessage('La Kc debe estar entre 10 y 100.000 imp/kWh.');
+      return;
+    }
+    setState(() {
+      if (!_kcPredefinidas.contains(kc) && !_kcPersonalizadas.contains(kc)) {
+        _kcPersonalizadas.add(kc);
+        _kcPersonalizadas.sort();
+      }
+      _kc.text = '$kc';
+    });
+    _guardarKcPersonalizadas();
+  }
+
+  void _quitarKc(int kc) {
+    setState(() => _kcPersonalizadas.remove(kc));
+    _guardarKcPersonalizadas();
+  }
+
+  /// Pulsos y segundos del ensayo con la Kc elegida.
+  Widget _resumenKc() {
+    final kc = _kcValue;
+    if (kc == null || kc <= 0) return const SizedBox.shrink();
+    final l = _connected ? _ble.lectura : null;
+    final medida = l != null && l.potencia >= 5;
+    final potencia = medida ? l.potencia : 1000.0;
+    final tp = 3600000.0 / (kc * potencia);
+    String texto;
+    if (_tiempoObjetivo > 0) {
+      final n = math.max(_pulsosMinimos, (_tiempoObjetivo / tp).floor()).clamp(_pulsosMinimos, 500).toInt();
+      texto = '${n} pulsos en ${_unDecimal(n * tp)} s · 1 pulso cada ${_unDecimal(tp)} s';
+    } else {
+      final n = _pulseValue ?? 0;
+      texto = n > 0
+          ? '$n pulsos en ${_unDecimal(n * tp)} s · 1 pulso cada ${_unDecimal(tp)} s'
+          : '1 pulso cada ${_unDecimal(tp)} s';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.timer_outlined, size: 18, color: vmBlue),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '$texto (${medida ? 'con ${vmMiles(potencia)} W medidos' : 'con una carga de 1.000 W'})',
+              style: const TextStyle(fontSize: 13, color: vmInk, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // Mismo cálculo que el firmware: Tp = 3.600.000 / (Kc · P);  N = piso(t / Tp), mínimo 3.
   // Ej.: Kc 1600 y 1000 W -> 1 pulso cada 2,25 s -> 15 s = 6 pulsos.
   static const int _pulsosMinimos = 3;
@@ -647,6 +745,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _loadHistory();
+    _cargarKcPersonalizadas();
     _ble.alPerderConexion = _alPerderConexion;
     _ble.addListener(_onBle);
     _ble.iniciar();
@@ -2423,15 +2522,38 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 13),
               const _FieldLabel('Constante del medidor (Kc)'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final k in [..._kcPredefinidas, ..._kcPersonalizadas])
+                    InputChip(
+                      label: Text(vmMiles(k.toDouble())),
+                      selected: _kcValue == k.toDouble(),
+                      showCheckmark: false,
+                      onSelected: _testRunning ? null : (_) => setState(() => _kc.text = '$k'),
+                      onDeleted: _kcPersonalizadas.contains(k) && !_testRunning ? () => _quitarKc(k) : null,
+                    ),
+                  ActionChip(
+                    avatar: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('Otra'),
+                    onPressed: _testRunning ? null : _agregarKc,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
               TextField(
                 controller: _kc,
+                enabled: !_testRunning,
                 onChanged: (_) => setState(() {}),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   suffixText: 'imp/kWh',
                   hintText: '1000',
+                  isDense: true,
                 ),
               ),
+              _resumenKc(),
               const SizedBox(height: 13),
               const _FieldLabel('Clase de exactitud'),
               DropdownButtonFormField<String>(
@@ -2640,25 +2762,50 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
-                if (dosToques) ...[
+                if (l == null || l.pulsosManuales) ...[
                   const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () async {
-                      HapticFeedback.mediumImpact();
-                      try {
-                        await _ble.marcarDestello();
-                      } catch (_) {
-                        _showMessage('No se pudo enviar el toque al equipo.');
-                      }
-                    },
-                    icon: Icon(esperando ? Icons.play_arrow_rounded : Icons.flag_rounded),
-                    label: Text(esperando ? 'INICIO · toca en un destello del LED' : 'FIN · destello N.º $objetivo'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(64),
-                      backgroundColor: (esperando || !cercaDelFin) ? vmBlue : VmColors.green,
-                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                  ),
+                  Builder(builder: (context) {
+                    // Por qué el botón podría no estar disponible (se muestra en el mismo botón).
+                    String? bloqueo;
+                    if (l == null) {
+                      bloqueo = 'Esperando datos del equipo…';
+                    } else if (!dosToques) {
+                      bloqueo = 'Actualiza la pantalla del equipo a la versión 2.5.1 (tiene ${_ble.info?.firmware ?? 'una anterior'})';
+                    } else if (esperando && l.estabilizando == 99) {
+                      bloqueo = 'La carga no está lista: revisa la pantalla del equipo';
+                    } else if (esperando && l.estabilizando > 0) {
+                      bloqueo = 'Estabilizando la carga · ${l.estabilizando} s';
+                    }
+                    return FilledButton.icon(
+                      onPressed: bloqueo != null ? null : () async {
+                        HapticFeedback.mediumImpact();
+                        final antes = _ble.lectura?.estado;
+                        try {
+                          await _ble.marcarDestello();
+                        } catch (_) {
+                          _showMessage('No se pudo enviar el toque al equipo. Revisa la conexión.');
+                          return;
+                        }
+                        // Si el equipo no cambió de estado, se informa (p. ej. FIN demasiado pronto).
+                        Future.delayed(const Duration(milliseconds: 1500), () {
+                          if (!mounted || !_testRunning) return;
+                          final ahora = _ble.lectura?.estado;
+                          if (antes == EstadoEnsayo.esperandoPulso && ahora == EstadoEnsayo.esperandoPulso) {
+                            _showMessage('El equipo no registró el INICIO. Revisa que la carga esté conectada.');
+                          } else if (antes == EstadoEnsayo.midiendo && ahora == EstadoEnsayo.midiendo) {
+                            _showMessage('FIN demasiado pronto: espera el destello N.º $objetivo.');
+                          }
+                        });
+                      },
+                      icon: Icon(bloqueo != null ? Icons.hourglass_top_rounded : (esperando ? Icons.play_arrow_rounded : Icons.flag_rounded)),
+                      label: Text(bloqueo ?? (esperando ? 'INICIO · toca en un destello del LED' : 'FIN · destello N.º $objetivo'), textAlign: TextAlign.center),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(64),
+                        backgroundColor: (esperando || !cercaDelFin) ? vmBlue : VmColors.green,
+                        textStyle: TextStyle(fontSize: bloqueo != null ? 14 : 18, fontWeight: FontWeight.w700),
+                      ),
+                    );
+                  }),
                 ],
                 const SizedBox(height: 10),
                 Text(

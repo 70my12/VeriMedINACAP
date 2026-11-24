@@ -47,6 +47,7 @@ class VeriMedLectura {
     this.avisos = 0,
     this.dosToques = false,
     this.destellosInferidos = 0,
+    this.estabilizando = 0,
   });
 
   final double tension; // V
@@ -71,6 +72,7 @@ class VeriMedLectura {
   final int avisos; // bits: 1 sin pulsos, 2 carga baja, 4 pulsos muy rápidos
   final bool dosToques; // firmware 2.5+: el técnico toca INICIO en un destello y FIN en el destello N
   final int destellosInferidos; // >0: el tiempo medido corresponde a otro número de destellos (revisar)
+  final int estabilizando; // 0 = INICIO habilitado; 1-5 = s de estabilización; 99 = la carga no está lista
 
   String? get textoAviso {
     if (avisos & 1 != 0) {
@@ -118,6 +120,7 @@ class VeriMedLectura {
       pulsosManuales: _int(j['pm']) >= 1,
       dosToques: _int(j['pm']) == 2,
       destellosInferidos: _int(j['an']),
+      estabilizando: _int(j['es']),
       estado: EstadoEnsayo.values[st.clamp(0, 3)],
       pulsos: _int(j['pul']),
       pulsosObjetivo: _int(j['np']),

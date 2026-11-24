@@ -26,7 +26,7 @@
 #define PULSOS_TACTILES      (!USAR_SENSOR_PULSOS && (USAR_PLACA || USAR_PZEM))
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.5.0"
+#define VERSION_FW     "2.5.1"
 #define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
@@ -1011,19 +1011,34 @@ float segundosEnsayo() {
   if (estado == LISTO) return duracionFinal;
   return 0;
 }
+// Para la app: 0 = INICIO habilitado; 1-5 = s de estabilizacion; 99 = la carga no esta lista
+int segundosEstabilizando() {
+  if (estado != ESPERA || !cargaEstabilizando()) return 0;
+#if USAR_PLACA
+  unsigned long dt = millis() - tCargaOn;
+  if (dt < ESTABILIZAR_MS) return (int)((ESTABILIZAR_MS - dt + 999) / 1000);
+  return 99;
+#else
+  return 0;
+#endif
+}
 void enviarMedicion() {
   if (!chMedicion) return;
+  // La notificacion BLE cabe en MTU - 3 bytes (182 con MTU 185, el maximo de iOS):
+  // con la placa no se envian FP ni frecuencia (no se miden) para no pasar ese largo.
   char json[320];
-  snprintf(json, sizeof(json),
-    "{\"v\":%.1f,\"i\":%.2f,\"p\":%.1f,\"fp\":%.2f,\"f\":%.1f,\"wh\":%.4f,\"t\":%.1f,\"sim\":%d,\"sp\":%d,"
-    "\"st\":%d,\"pul\":%u,\"np\":%u,\"kc\":%u,\"err\":%.3f,\"apr\":%d,\"alm\":%u,"
-    "\"to\":%u,\"tp\":%.2f,\"av\":%u,\"pm\":%d,\"an\":%u}",
-    V, I, P, FP, F, estado == LISTO ? ultimo.eref : energiaWh, segundosEnsayo(),
+  int n = snprintf(json, sizeof(json), "{\"v\":%.1f,\"i\":%.2f,\"p\":%.1f,", V, I, P);
+  if (!USAR_PLACA) n += snprintf(json + n, sizeof(json) - n, "\"fp\":%.2f,\"f\":%.1f,", FP, F);
+  snprintf(json + n, sizeof(json) - n,
+    "\"wh\":%.4f,\"t\":%.1f,\"sim\":%d,\"sp\":%d,"
+    "\"st\":%d,\"pul\":%u,\"np\":%u,\"kc\":%u,\"err\":%.2f,\"apr\":%d,\"alm\":%u,"
+    "\"to\":%u,\"tp\":%.2f,\"av\":%u,\"pm\":%d,\"an\":%u,\"es\":%d}",
+    estado == LISTO ? ultimo.eref : energiaWh, segundosEnsayo(),
     (USAR_PZEM || USAR_PLACA) ? 0 : 1, (USAR_SENSOR_PULSOS || PULSOS_TACTILES) ? 0 : 1, (int)estado,
     (unsigned)(estado == LISTO ? ultimo.pulsos : pulsosEstimados()), (unsigned)pulsosObjetivo(), (unsigned)cfgKc,
     hayResultado ? ultimo.err : 0.0, hayResultado && ultimo.aprobado ? 1 : 0, (unsigned)alarmas,
     (unsigned)cfgTiempo, segPorPulso(), (unsigned)avisos, PULSOS_TACTILES ? 2 : 0,
-    (unsigned)(estado == LISTO ? nInferido : 0));
+    (unsigned)(estado == LISTO ? nInferido : 0), segundosEstabilizando());
   chMedicion->setValue((uint8_t *)json, strlen(json));
   if (bleConectado) chMedicion->notify();
 }
@@ -1079,7 +1094,7 @@ void procesarComando() {
 
 void iniciarBLE() {
   BLEDevice::init(BLE_NOMBRE);
-  BLEDevice::setMTU(185);
+  BLEDevice::setMTU(247);              // Android usa hasta 244 bytes por notificacion; iOS, 182
   BLEDevice::setPower(ESP_PWR_LVL_P9);
   BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_ADV);
   bleServer = BLEDevice::createServer();
