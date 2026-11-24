@@ -504,6 +504,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
   final TextEditingController _potenciaManual = TextEditingController();
   bool _conteoManual = false; // el último ensayo guardado fue por conteo manual
   bool _pulsosTactiles = false; // pulsos marcados con el botón PULSO de la pantalla del equipo
+  bool _dosToques = false; // INICIO en un destello y FIN en el destello N (firmware 2.5+)
+  int _destellosInferidos = 0; // >0: el tiempo no coincide con N destellos (revisar)
   Timer? _cronometro;
   DateTime? _cronoInicio;
   double _cronoSegundos = 0;
@@ -743,7 +745,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     }
     _equipoMidiendoAntes = equipoMidiendo;
     final pul = lectura?.pulsos ?? 0;
-    if (_testRunning && pul > _pulsosVistos) HapticFeedback.selectionClick();
+    // En el modo de dos toques el contador es estimado: no vibra para no confundir con el LED.
+    if (_testRunning && pul > _pulsosVistos && !(lectura?.dosToques ?? false)) HapticFeedback.selectionClick();
     _pulsosVistos = pul;
     setState(() {});
   }
@@ -975,6 +978,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     _medicionSimulada = l.simulada || l.pulsosSimulados;
     _pulsosAutomaticos = !l.pulsosSimulados && !l.pulsosManuales;
     _pulsosTactiles = l.pulsosManuales;
+    _dosToques = l.dosToques;
+    _destellosInferidos = l.destellosInferidos;
     _conteoManual = false;
     final now = DateTime.now();
     final error = _calculatedErrorPct;
@@ -1006,7 +1011,10 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     });
     _saveHistory();
     final txtError = error == null ? '' : ' (${error >= 0 ? '+' : ''}${error.toStringAsFixed(2)} %)';
-    _showMessage('Ensayo guardado: ${error != null && error.abs() <= _acceptanceLimitPct ? 'dentro del límite' : 'fuera del límite'}$txtError.');
+    final revisar = l.destellosInferidos > 0
+        ? ' Revisar: el tiempo medido corresponde a ${l.destellosInferidos} destellos, no ${l.pulsos} (error alto del medidor o FIN en otro destello).'
+        : '';
+    _showMessage('Ensayo guardado: ${error != null && error.abs() <= _acceptanceLimitPct ? 'dentro del límite' : 'fuera del límite'}$txtError.$revisar');
   }
 
   /// Abre la cámara para leer el código de barras / QR del número de serie.
@@ -1834,7 +1842,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                 const SizedBox(height: 6),
                 _DataRow(label: 'Referencia (V, I, P)', value: ble.lectura!.simulada ? 'Simulada' : 'Placa de medición (2 × AD71056)'),
                 const SizedBox(height: 6),
-                _DataRow(label: 'Pulsos del medidor', value: ble.lectura!.pulsosSimulados ? 'Simulados' : (ble.lectura!.pulsosManuales ? 'Botón PULSO en la pantalla' : 'Sensor óptico')),
+                _DataRow(label: 'Pulsos del medidor', value: ble.lectura!.pulsosSimulados ? 'Simulados' : (ble.lectura!.dosToques ? 'INICIO y FIN (pantalla o app)' : (ble.lectura!.pulsosManuales ? 'Botón PULSO en la pantalla' : 'Sensor óptico'))),
                 if (ble.info != null) ...[
                   const SizedBox(height: 6),
                   _DataRow(label: 'Equipo', value: '${ble.info!.serie} · FW ${ble.info!.firmware}'),
@@ -2500,6 +2508,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
             final totalS = (objetivo > 0 && tp > 0) ? objetivo * tp : 0.0;
             final restante = (totalS > 0 && l != null && !esperando) ? math.max(0.0, totalS - l.segundos) : null;
             final pulsosAhora = esperando ? 0 : (l?.pulsos ?? 0);
+            final dosToques = l?.dosToques ?? false;
+            final cercaDelFin = dosToques && !esperando && objetivo > 0 && pulsosAhora + 1 >= objetivo;
             final kc = _kcValue;
             Widget dato(String etiqueta, String valor) => Expanded(
                   child: VmCard(
@@ -2518,7 +2528,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                VmStepper(pasos: const ['Configurar', '1er pulso', 'Midiendo', 'Resultado'], actual: esperando ? 1 : 2),
+                VmStepper(pasos: dosToques ? const ['Configurar', 'INICIO', 'FIN', 'Resultado'] : const ['Configurar', '1er pulso', 'Midiendo', 'Resultado'], actual: esperando ? 1 : 2),
                 const SizedBox(height: 14),
                 VmCard(
                   sombra: true,
@@ -2535,7 +2545,7 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                                 Row(
                                   children: [
                                     VmLiveDot(color: esperando ? VmColors.blue : VmColors.amber, size: 8),
-                                    Text(esperando ? 'Esperando el 1er pulso' : 'Pulso', style: const TextStyle(fontSize: 13, color: VmColors.muted)),
+                                    Text(esperando ? (dosToques ? 'Toca INICIO en un destello' : 'Esperando el 1er pulso') : (dosToques ? 'Destello (estimado)' : 'Pulso'), style: const TextStyle(fontSize: 13, color: VmColors.muted)),
                                   ],
                                 ),
                                 Row(
@@ -2630,9 +2640,35 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
+                if (dosToques) ...[
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      HapticFeedback.mediumImpact();
+                      try {
+                        await _ble.marcarDestello();
+                      } catch (_) {
+                        _showMessage('No se pudo enviar el toque al equipo.');
+                      }
+                    },
+                    icon: Icon(esperando ? Icons.play_arrow_rounded : Icons.flag_rounded),
+                    label: Text(esperando ? 'INICIO · toca en un destello del LED' : 'FIN · destello N.º $objetivo'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(64),
+                      backgroundColor: (esperando || !cercaDelFin) ? vmBlue : VmColors.green,
+                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Text(
-                  (l?.pulsosManuales ?? false)
+                  dosToques
+                      ? (esperando
+                          ? 'Toca INICIO justo cuando destelle el LED del medidor (en la app o en la pantalla del equipo). No hace falta marcar los destellos intermedios.'
+                          : (cercaDelFin
+                              ? 'Atento: toca FIN en el próximo destello, el N.º $objetivo.'
+                              : 'Cuenta los destellos y toca FIN en el destello N.º $objetivo. El contador es una estimación por tiempo.'))
+                      : (l?.pulsosManuales ?? false)
                       ? 'Marca cada destello del LED del medidor con el botón PULSO de la pantalla del equipo.'
                       : (l?.pulsosSimulados ?? true)
                           ? 'Los pulsos del medidor se simulan en el equipo (aún sin sensor óptico).'
@@ -2652,7 +2688,9 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
               foregroundColor: vmRed,
             ),
           ),
-          const SizedBox(height: 8),
+          // En el modo de dos toques el ensayo termina con FIN; "Finalizar" lo cancelaría sin resultado.
+          if (!(_ble.lectura?.dosToques ?? false)) const SizedBox(height: 8),
+          if (!(_ble.lectura?.dosToques ?? false))
           FilledButton(
             onPressed: _finishTest,
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
@@ -2753,6 +2791,8 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
     _medicionSimulada = simulada;
     _pulsosAutomaticos = false;
     _pulsosTactiles = false;
+    _dosToques = false;
+    _destellosInferidos = 0;
     _conteoManual = true;
     final error = _calculatedErrorPct;
     final record = <String, dynamic>{
@@ -3006,7 +3046,10 @@ class _VeriMedHomeState extends State<VeriMedHome> with WidgetsBindingObserver {
       ['Conteo de pulsos', _conteoManual
           ? 'Manual: el técnico contó los pulsos del LED del medidor'
           : (_pulsosTactiles
-              ? 'En la pantalla del equipo: el técnico marcó cada destello del LED del medidor'
+              ? (_dosToques
+                  ? 'Dos toques: el técnico marcó el destello inicial y el destello N.º $pulseCount del LED del medidor'
+                      '${_destellosInferidos > 0 ? ' (revisar: el tiempo corresponde a $_destellosInferidos destellos)' : ''}'
+                  : 'En la pantalla del equipo: el técnico marcó cada destello del LED del medidor')
               : (_pulsosAutomaticos ? 'Automático (sensor óptico en el LED del medidor)' : 'Simulado en el equipo (sin sensor óptico)'))],
       ['Equipo VeriMed BT (serie)', _ble.info?.serie ?? 'No informado'],
       ['Firmware / calibración del equipo', _ble.info == null ? 'No informado' : 'v${_ble.info!.firmware} · calibración: ${_ble.info!.calibracion}'],

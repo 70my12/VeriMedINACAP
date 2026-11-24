@@ -21,11 +21,12 @@
 #define USAR_PLACA           1   // 1 = referencia real desde la placa de medicion (AD71056) por J3
 #define USAR_PZEM            0   // 1 = referencia real con PZEM-004T v3 (no usar junto con USAR_PLACA)
 #define USAR_SENSOR_PULSOS   0   // 1 = sensor optico real en el LED del medidor
-// Sin sensor y con medicion real: el tecnico marca cada destello del LED con el boton PULSO de la pantalla
+// Sin sensor y con medicion real: el tecnico toca INICIO en un destello del LED y FIN en el destello N
+// (pantalla o app). Los pulsos intermedios no se marcan: N queda fijo al iniciar.
 #define PULSOS_TACTILES      (!USAR_SENSOR_PULSOS && (USAR_PLACA || USAR_PZEM))
 
 #define NUMERO_SERIE   "VMBT7-0001"
-#define VERSION_FW     "2.4.3"
+#define VERSION_FW     "2.5.0"
 #define FECHA_CAL      "17-11-2026 con UNI-T UT201"
 
 // Pines libres en el conector J2 de la pantalla (20 pines): 10, 11, 12, 13, 17, 18, 38.
@@ -185,6 +186,10 @@ double energiaWh = 0, energiaEnPulso = 0;
 unsigned long tIntegracion = 0, tInicio = 0, tUltPulso = 0;
 uint16_t pulsos = 0;
 float duracionFinal = 0;
+// Modo de dos toques (sin sensor): comprobacion del destello final
+uint16_t nInferido = 0;                  // destellos que corresponden al tiempo medido (0 = sin aviso)
+unsigned long tFinTemprano = 0;          // FIN tocado demasiado pronto (aviso de 3 s)
+volatile unsigned long tComando = 0;     // instante en que llego un comando BLE (MARCA)
 
 const int MAX_HIST = MAX_HIST_GUARDADO;
 Resultado hist[MAX_HIST];
@@ -289,6 +294,18 @@ uint16_t pulsosCalculados() {             // pulsos que tendra el ensayo si part
   if (tp <= 0) return N_MIN;
   long n = (long)floorf(cfgTiempo / tp);
   return (uint16_t)constrain(n, (long)N_MIN, (long)N_MAX);
+}
+// Pulsos transcurridos estimados por tiempo (modo de dos toques: no se marcan los intermedios)
+uint16_t pulsosEstimados() {
+#if PULSOS_TACTILES
+  if (estado != MIDIENDO) return pulsos;
+  float tp = segPorPulso();
+  if (tp <= 0) return 0;
+  long k = (long)floorf((millis() - tInicio) / 1000.0f / tp);
+  return (uint16_t)constrain(k, 0L, (long)nEnsayo);
+#else
+  return pulsos;
+#endif
 }
 uint16_t pulsosObjetivo() {
   if (estado == MIDIENDO) return nEnsayo;
@@ -423,11 +440,22 @@ void dibujarEstado() {
   int cy = r.y + r.h / 2 + 1;
   if (!alarmas && estado == MIDIENDO) {
     g.fillSmoothRoundRect(r.x, r.y, r.w, r.h, 10, C_AMBAR_BG);
-    int fw = (int)((r.w - 6) * (float)pulsos / max((int)nEnsayo, 1));
+    uint16_t k = pulsosEstimados();
+    int fw = (int)((r.w - 6) * (float)k / max((int)nEnsayo, 1));
     if (fw > 20) g.fillSmoothRoundRect(r.x + 3, r.y + 3, fw, r.h - 6, 8, C_AMBAR_BAR);
     icono(I7_PULSO_24, r.x + 12, r.y + 8, C_AMBAR);
-    texto("Midiendo · pulso " + String(pulsos) + " de " + String(nEnsayo) + " · " + String(energiaWh, 3) + " Wh",
-          r.x + 46, cy, F7_SB18, C_AMBAR, middle_left);
+    String m;
+#if PULSOS_TACTILES
+    if (tFinTemprano && millis() - tFinTemprano < 3000)
+      m = "FIN muy pronto: faltan ~" + String(nEnsayo - k) + " destellos";
+    else if (k + 1 >= nEnsayo)
+      m = "Toca FIN en el destello N.º " + String(nEnsayo) + " · ~" + String(k) + " de " + String(nEnsayo);
+    else
+      m = "Midiendo · ~" + String(k) + " de " + String(nEnsayo) + " · FIN en el destello " + String(nEnsayo);
+#else
+    m = "Midiendo · pulso " + String(pulsos) + " de " + String(nEnsayo) + " · " + String(energiaWh, 3) + " Wh";
+#endif
+    texto(m, r.x + 46, cy, F7_SB18, C_AMBAR, middle_left);
     return;
   }
   uint16_t bg = C_VERDE_BG, fg = C_VERDE;
@@ -441,8 +469,9 @@ void dibujarEstado() {
     else msg = "ALERTA: sobrecorriente " + String(I, 1) + " A";
   } else if ((avisos & AV_SIN_PULSOS) && ensayoActivo()) {
     bg = C_AMBAR_BG; fg = C_AMBAR; ic = &I7_ALERTA_24;
-    msg = PULSOS_TACTILES ? "Sin pulsos: toca PULSO con cada destello del LED del medidor"
-                          : "Sin pulsos: revisa el sensor o si el medidor está registrando";
+    msg = !PULSOS_TACTILES ? "Sin pulsos: revisa el sensor o si el medidor está registrando"
+        : estado == MIDIENDO ? "¿Ya pasó el destello " + String(nEnsayo) + "? Toca FIN o DETENER"
+                             : "Toca INICIO cuando destelle el LED del medidor";
   } else if (estado == ESPERA && cargaEstabilizando()) {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     msg = "Conectando la carga de ensayo y estabilizando la medición...";
@@ -461,8 +490,8 @@ void dibujarEstado() {
     bg = C_AZUL_BG; fg = C_AZUL; ic = &I7_PULSO_24;
     float tp = segPorPulso();
     if (PULSOS_TACTILES)
-      msg = tp > 0 ? "1er toque = inicio, luego " + String(pulsosCalculados()) + " toques más · 1 cada " + unDecimal(tp) + " s"
-                   : "Toca PULSO con cada destello: el primer toque marca el inicio";
+      msg = tp > 0 ? "INICIO en un destello · FIN en el destello N.º " + String(pulsosCalculados()) + " (~" + String((int)lroundf(pulsosCalculados() * tp)) + " s)"
+                   : "Toca INICIO en un destello del LED del medidor";
     else
       msg = tp > 0 ? "Esperando el primer pulso · se espera 1 cada " + unDecimal(tp) + " s"
                    : "Esperando el primer pulso del LED del medidor...";
@@ -572,9 +601,9 @@ const Rect R_DATOS_ENSAYO = {537, 166, 246, 172};   // debajo de la etiqueta de 
 void dibujarDatosEnsayo() {
   const Rect &r = R_ENSAYO;
   g.fillRect(R_DATOS_ENSAYO.x, R_DATOS_ENSAYO.y, R_DATOS_ENSAYO.w, R_DATOS_ENSAYO.h, C_CARD);
-  uint16_t p = (estado == MIDIENDO) ? pulsos : 0;
+  uint16_t p = (estado == MIDIENDO) ? pulsosEstimados() : 0;
   uint16_t nObj = max((int)pulsosObjetivo(), 1);
-  texto(String(p) + " / " + String(nObj), r.x + r.w / 2, r.y + 70, F7_B44, C_TEXTO, middle_center);
+  texto((PULSOS_TACTILES && estado == MIDIENDO ? "~" : "") + String(p) + " / " + String(nObj), r.x + r.w / 2, r.y + 70, F7_B44, C_TEXTO, middle_center);
   texto(cfgTiempo ? "pulsos · automático " + String(cfgTiempo) + " s" : String("pulsos · manual"),
         r.x + r.w / 2, r.y + 102, F7_SB14, C_GRIS, middle_center);
   g.fillSmoothRoundRect(r.x + 16, r.y + 118, r.w - 32, 12, 6, C_GRIS_BG);
@@ -601,7 +630,10 @@ void dibujarBotonesPrincipal() {
   if (ensayoActivo()) {
     limpiar({536, 352, 248, 112});
     bool listo = !cargaEstabilizando();
-    boton(R_PULSO, true, listo ? C_AZUL : C_GRIS, listo ? C_AZUL_OSC : C_GRIS, "PULSO", I7_PULSO_24, F7_B30, 10,
+    bool fin = estado == MIDIENDO;
+    uint16_t col = !listo ? C_GRIS : (fin ? C_VERDE : C_AZUL);
+    uint16_t colOsc = !listo ? C_GRIS : (fin ? C_VERDE : C_AZUL_OSC);
+    boton(R_PULSO, true, col, colOsc, fin ? "FIN" : "INICIO", I7_PULSO_24, F7_B30, 10,
           botonPresionado == B_PULSO && listo);
     boton(R_DETENER_T, false, C_ROJO, C_ROJO, "DETENER", I7_STOP_28, F7_SB14, 6, botonPresionado == B_INICIAR);
     return;
@@ -713,7 +745,10 @@ void dibujarPantallaResultado() {
   texto(ok ? "APROBADO" : "RECHAZADO", 96, 101, F7_B30, fg);
   texto("Clase " + String(r.clase) + " · Kc " + String(r.kc) + " · límite ±" + String(r.clase == 1 ? 1 : 2) + " %", 760, 108, F7_SB18, fg, top_right);
   texto(conSigno(r.err, 2) + "%", 400, 220, F7_B112, fg, middle_center);
-  texto("error del medidor · ensayo N.º " + String(r.id), 400, 300, F7_SB18, fg, middle_center);
+  if (PULSOS_TACTILES && nInferido && r.id == proximoId - 1)
+    texto("Revisar: el tiempo medido corresponde a " + String(nInferido) + " destellos, no " + String(r.pulsos), 400, 300, F7_SB18, C_AMBAR, middle_center);
+  else
+    texto("error del medidor · ensayo N.º " + String(r.id), 400, 300, F7_SB18, fg, middle_center);
   tarjeta({16, 338, 768, 58}, 14, C_CARD, C_BORDE);
   texto("Eref  " + String(r.eref, 4) + " Wh", 144, 367, F7_SB18, C_TEXTO, middle_center);
   texto("Emed  " + String(r.emed, 4) + " Wh", 400, 367, F7_SB18, C_TEXTO, middle_center);
@@ -826,6 +861,7 @@ void iniciarEnsayo() {
   energiaSimMedidor = 0;
   errSim = random(-150, 151) / 100.0;
   nEnsayo = pulsosCalculados();
+  nInferido = 0; tFinTemprano = 0;
   avisos &= ~AV_SIN_PULSOS;
   noInterrupts(); pulsosISR = 0; interrupts();
   tInicio = tUltPulso = millis();
@@ -844,6 +880,7 @@ void finalizarEnsayo() {
   Resultado r;
   r.id = proximoId++;
   r.pulsos = pulsos;
+  if (!PULSOS_TACTILES) nInferido = 0;
   r.kc = cfgKc;
   r.clase = cfgClase;
   r.seg = (tUltPulso - tInicio) / 1000.0;
@@ -899,18 +936,32 @@ void procesarPulso(unsigned long tPulso) {
   refrescarEstado(); refrescarPanel();
 }
 
-// Pulso marcado por el tecnico con el boton PULSO (se ignora mientras la carga se estabiliza)
+// Toque del tecnico (boton INICIO/FIN de la pantalla o comando MARCA de la app).
+// 1er toque (INICIO): en un destello del LED; se ignora mientras la carga se estabiliza.
+// 2do toque (FIN): en el destello N; no se marcan los destellos intermedios.
 void pulsoTactil(unsigned long t) {
   if (!ensayoActivo()) return;
-  // Antirrebote: un doble toque sobre el mismo destello no cuenta como dos pulsos.
-  // Se ignora todo toque que llegue antes del 50 % del tiempo esperado entre pulsos (minimo 0,4 s).
-  if (estado == MIDIENDO) {
-    float tp = segPorPulso();
-    unsigned long minimo = tp > 0 ? (unsigned long)(tp * 500.0f) : 400;
-    if (minimo < 400) minimo = 400;
-    if (t - tUltPulso < minimo) return;
+  if (estado == ESPERA) { procesarPulso(t); return; }      // INICIO
+  if (estado != MIDIENDO) return;
+  float tp = segPorPulso();
+  // Un FIN antes de la mitad del tiempo esperado es un toque accidental (p. ej. doble toque en INICIO)
+  unsigned long minimo = tp > 0 ? (unsigned long)(nEnsayo * tp * 500.0f) : 1000;
+  if (minimo < 1000) minimo = 1000;
+  if (t - tInicio < minimo) { tFinTemprano = millis(); refrescarEstado(); return; }
+  integrarHasta(t);
+  pulsos = nEnsayo;
+  energiaEnPulso = energiaWh;
+  tUltPulso = t;
+  // Comprobacion: con la potencia media medida, cuantos destellos caben en el tiempo medido.
+  // Si no coincide con N, el medidor tiene un error grande o se toco FIN en otro destello.
+  float seg = (t - tInicio) / 1000.0f;
+  float pMedia = seg > 0 ? energiaWh * 3600.0f / seg : 0;
+  nInferido = 0;
+  if (pMedia > 0) {
+    long n = lroundf(seg * cfgKc * pMedia / 3600000.0f);
+    if (n != (long)nEnsayo) nInferido = (uint16_t)constrain(n, 0L, 9999L);
   }
-  procesarPulso(t);
+  finalizarEnsayo();
 }
 
 void revisarPulsos(unsigned long ahora) {
@@ -947,6 +998,7 @@ uint8_t calcularAvisos(unsigned long ahora) {
   }
   if (ensayoActivo()) {
     float limite = max(10.0f, 3.0f * (tp > 0 ? tp : 10.0f));
+    if (PULSOS_TACTILES && estado == MIDIENDO) limite = 1.5f * nEnsayo * (tp > 0 ? tp : 10.0f) + 10.0f;   // FIN olvidado
     unsigned long desde = estado == ESPERA ? tInicio : tUltPulso;
     if ((ahora - desde) / 1000.0f > limite + (estado == ESPERA ? tp : 0)) a |= AV_SIN_PULSOS;
   }
@@ -965,12 +1017,13 @@ void enviarMedicion() {
   snprintf(json, sizeof(json),
     "{\"v\":%.1f,\"i\":%.2f,\"p\":%.1f,\"fp\":%.2f,\"f\":%.1f,\"wh\":%.4f,\"t\":%.1f,\"sim\":%d,\"sp\":%d,"
     "\"st\":%d,\"pul\":%u,\"np\":%u,\"kc\":%u,\"err\":%.3f,\"apr\":%d,\"alm\":%u,"
-    "\"to\":%u,\"tp\":%.2f,\"av\":%u,\"pm\":%d}",
+    "\"to\":%u,\"tp\":%.2f,\"av\":%u,\"pm\":%d,\"an\":%u}",
     V, I, P, FP, F, estado == LISTO ? ultimo.eref : energiaWh, segundosEnsayo(),
     (USAR_PZEM || USAR_PLACA) ? 0 : 1, (USAR_SENSOR_PULSOS || PULSOS_TACTILES) ? 0 : 1, (int)estado,
-    (unsigned)(estado == LISTO ? ultimo.pulsos : pulsos), (unsigned)pulsosObjetivo(), (unsigned)cfgKc,
+    (unsigned)(estado == LISTO ? ultimo.pulsos : pulsosEstimados()), (unsigned)pulsosObjetivo(), (unsigned)cfgKc,
     hayResultado ? ultimo.err : 0.0, hayResultado && ultimo.aprobado ? 1 : 0, (unsigned)alarmas,
-    (unsigned)cfgTiempo, segPorPulso(), (unsigned)avisos, PULSOS_TACTILES ? 1 : 0);
+    (unsigned)cfgTiempo, segPorPulso(), (unsigned)avisos, PULSOS_TACTILES ? 2 : 0,
+    (unsigned)(estado == LISTO ? nInferido : 0));
   chMedicion->setValue((uint8_t *)json, strlen(json));
   if (bleConectado) chMedicion->notify();
 }
@@ -992,6 +1045,7 @@ class ServidorCallbacks : public BLEServerCallbacks {
 class ComandoCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *c) override {
     String v = String(c->getValue().c_str());
+    tComando = millis();                  // instante del toque en la app (MARCA)
     strncpy(cmdBuf, v.c_str(), sizeof(cmdBuf) - 1);
     cmdBuf[sizeof(cmdBuf) - 1] = 0;
     cmdNuevo = true;
@@ -1018,6 +1072,7 @@ void procesarComando() {
   String may = cmd; may.toUpperCase();
   if (may == "INICIAR" || may == "START") iniciarEnsayo();
   else if (may == "DETENER" || may == "STOP") detenerEnsayo();
+  else if (may == "MARCA" || may == "PULSO") { if (PULSOS_TACTILES) pulsoTactil(tComando); }
   else if (may.startsWith("CFG:")) aplicarConfig(cmd.substring(4));
   enviarMedicion();
 }

@@ -45,6 +45,8 @@ class VeriMedLectura {
     this.tiempoObjetivo = 0,
     this.segPorPulso = 0,
     this.avisos = 0,
+    this.dosToques = false,
+    this.destellosInferidos = 0,
   });
 
   final double tension; // V
@@ -67,9 +69,18 @@ class VeriMedLectura {
   final int tiempoObjetivo; // s (0 = pulsos manuales o firmware antiguo)
   final double segPorPulso; // s esperados entre pulsos con la carga actual (0 = sin dato)
   final int avisos; // bits: 1 sin pulsos, 2 carga baja, 4 pulsos muy rápidos
+  final bool dosToques; // firmware 2.5+: el técnico toca INICIO en un destello y FIN en el destello N
+  final int destellosInferidos; // >0: el tiempo medido corresponde a otro número de destellos (revisar)
 
   String? get textoAviso {
-    if (avisos & 1 != 0) return 'No llegan pulsos del medidor: revisa la posición del sensor o si el medidor está registrando.';
+    if (avisos & 1 != 0) {
+      if (dosToques) {
+        return estado == EstadoEnsayo.midiendo
+            ? '¿Ya pasó el destello N.º $pulsosObjetivo? Toca FIN o cancela el ensayo.'
+            : 'Toca INICIO cuando destelle el LED del medidor.';
+      }
+      return 'No llegan pulsos del medidor: revisa la posición del sensor o si el medidor está registrando.';
+    }
     if (avisos & 2 != 0) {
       return potencia < 5 ? 'Sin carga conectada: conecta la carga de ensayo.' : 'Carga baja: el ensayo duraría más de 5 minutos. Usa una carga mayor.';
     }
@@ -104,7 +115,9 @@ class VeriMedLectura {
       segundos: _num(j['t']),
       simulada: _int(j['sim']) == 1,
       pulsosSimulados: j.containsKey('sp') ? _int(j['sp']) == 1 : true,
-      pulsosManuales: _int(j['pm']) == 1,
+      pulsosManuales: _int(j['pm']) >= 1,
+      dosToques: _int(j['pm']) == 2,
+      destellosInferidos: _int(j['an']),
       estado: EstadoEnsayo.values[st.clamp(0, 3)],
       pulsos: _int(j['pul']),
       pulsosObjetivo: _int(j['np']),
@@ -420,6 +433,9 @@ class VeriMedBle extends ChangeNotifier {
     if (!conectado || c == null) throw StateError('El equipo no está conectado.');
     await c.write(utf8.encode(comando));
   }
+
+  /// Toque del técnico en un destello del LED: INICIO (1er toque) o FIN (destello N).
+  Future<void> marcarDestello() => enviarComando('MARCA');
 
   /// Configura el ensayo en el equipo: constante Kc, N pulsos y clase (1 o 2).
   /// [tiempo] = duración objetivo en s (el equipo calcula los pulsos); 0 = usar [pulsos] fijos.
